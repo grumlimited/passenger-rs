@@ -2,11 +2,25 @@ mod auth;
 mod config;
 
 use anyhow::Result;
+use clap::Parser;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
+/// GitHub Copilot proxy server
+#[derive(Parser, Debug)]
+#[command(name = "passenger-rs")]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Path to the configuration file
+    #[arg(short, long, default_value = "config.toml")]
+    config: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Parse command line arguments
+    let args = Args::parse();
+
     // Initialize tracing
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::INFO)
@@ -16,8 +30,8 @@ async fn main() -> Result<()> {
     info!("Starting passenger-rs - GitHub Copilot Proxy");
 
     // Load configuration
-    let config = config::Config::load()?;
-    info!("Configuration loaded from config.toml");
+    let config = config::Config::from_file(&args.config)?;
+    info!("Configuration loaded from {}", args.config);
 
     // Test device code request
     let client = reqwest::Client::new();

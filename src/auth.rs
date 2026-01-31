@@ -28,14 +28,21 @@ struct DeviceCodeRequest {
 ///
 /// # Example
 /// ```no_run
-/// let client = reqwest::Client::new();
-/// let response = request_device_code(
-///     &client,
-///     "https://github.com/login/device/code",
-///     "Iv1.b507a08c87ecfe98"
-/// ).await?;
-/// println!("Visit: {}", response.verification_uri);
-/// println!("Enter code: {}", response.user_code);
+/// use passenger_rs::auth::request_device_code;
+/// use reqwest::Client;
+///
+/// #[tokio::main]
+/// async fn main() -> anyhow::Result<()> {
+///     let client = Client::new();
+///     let response = request_device_code(
+///         &client,
+///         "https://github.com/login/device/code",
+///         "Iv1.b507a08c87ecfe98"
+///     ).await?;
+///     println!("Visit: {}", response.verification_uri);
+///     println!("Enter code: {}", response.user_code);
+///     Ok(())
+/// }
 /// ```
 pub async fn request_device_code(
     client: &Client,

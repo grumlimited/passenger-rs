@@ -4,7 +4,7 @@ use reqwest::Client;
 
 #[tokio::test]
 async fn test_request_device_code() {
-    let config = Config::load().expect("Failed to load config");
+    let config = Config::from_file("config.toml").expect("Failed to load config");
     let client = Client::new();
     let result = request_device_code(
         &client,
