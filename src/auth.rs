@@ -2,9 +2,6 @@ use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-const GITHUB_DEVICE_CODE_URL: &str = "https://github.com/login/device/code";
-const COPILOT_CLIENT_ID: &str = "Iv1.b507a08c87ecfe98";
-
 /// Response from GitHub device code request
 #[derive(Debug, Deserialize)]
 pub struct DeviceCodeResponse {
@@ -22,16 +19,36 @@ struct DeviceCodeRequest {
     scope: String,
 }
 
-pub async fn request_device_code(client: &Client, base_url: Option<&str>) -> Result<DeviceCodeResponse> {
-    let url = base_url.unwrap_or(GITHUB_DEVICE_CODE_URL);
-    
+/// Request GitHub device code for OAuth flow
+///
+/// # Arguments
+/// * `client` - HTTP client to use for the request
+/// * `device_code_url` - GitHub device code endpoint URL
+/// * `client_id` - GitHub OAuth client ID
+///
+/// # Example
+/// ```no_run
+/// let client = reqwest::Client::new();
+/// let response = request_device_code(
+///     &client,
+///     "https://github.com/login/device/code",
+///     "Iv1.b507a08c87ecfe98"
+/// ).await?;
+/// println!("Visit: {}", response.verification_uri);
+/// println!("Enter code: {}", response.user_code);
+/// ```
+pub async fn request_device_code(
+    client: &Client,
+    device_code_url: &str,
+    client_id: &str,
+) -> Result<DeviceCodeResponse> {
     let request_body = DeviceCodeRequest {
-        client_id: COPILOT_CLIENT_ID.to_string(),
+        client_id: client_id.to_string(),
         scope: "read:user".to_string(),
     };
 
     let response = client
-        .post(url)
+        .post(device_code_url)
         .header("accept", "application/json")
         .header("editor-version", "Neovim/0.6.1")
         .header("editor-plugin-version", "copilot.vim/1.16.0")
@@ -94,7 +111,7 @@ mod tests {
         // Make request
         let client = Client::new();
         let url = format!("{}/device/code", mock_server.uri());
-        let result = request_device_code(&client, Some(&url)).await;
+        let result = request_device_code(&client, &url, "Iv1.b507a08c87ecfe98").await;
 
         // Assertions
         assert!(result.is_ok(), "Request should succeed");
@@ -121,7 +138,7 @@ mod tests {
         // Make request
         let client = Client::new();
         let url = format!("{}/device/code", mock_server.uri());
-        let result = request_device_code(&client, Some(&url)).await;
+        let result = request_device_code(&client, &url, "Iv1.b507a08c87ecfe98").await;
 
         // Assertions
         assert!(result.is_err(), "Request should fail with 401");

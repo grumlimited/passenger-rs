@@ -1,4 +1,5 @@
 mod auth;
+mod config;
 
 use anyhow::Result;
 use tracing::{info, Level};
@@ -14,11 +15,19 @@ async fn main() -> Result<()> {
 
     info!("Starting passenger-rs - GitHub Copilot Proxy");
 
+    // Load configuration
+    let config = config::Config::load()?;
+    info!("Configuration loaded from config.toml");
+
     // Test device code request
     let client = reqwest::Client::new();
     info!("Requesting device code from GitHub...");
     
-    let device_code_response = auth::request_device_code(&client, None).await?;
+    let device_code_response = auth::request_device_code(
+        &client,
+        &config.github.device_code_url,
+        &config.github.client_id,
+    ).await?;
     
     info!("Device code received!");
     info!("Device code: {} (save this for token polling)", device_code_response.device_code);
