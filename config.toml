@@ -1,0 +1,6 @@
+[github]
+# GitHub OAuth device code endpoint
+device_code_url = "https://github.com/login/device/code"
+
+# GitHub Copilot public client ID (same for all users)
+client_id = "Iv1.b507a08c87ecfe98"

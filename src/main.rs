@@ -1,5 +1,6 @@
 mod auth;
 mod config;
+mod login;
 
 use anyhow::Result;
 use clap::Parser;
@@ -14,6 +15,10 @@ struct Args {
     /// Path to the configuration file
     #[arg(short, long, default_value = "config.toml")]
     config: String,
+
+    /// Perform GitHub OAuth device flow login
+    #[arg(long)]
+    login: bool,
 }
 
 #[tokio::main]
@@ -33,22 +38,14 @@ async fn main() -> Result<()> {
     let config = config::Config::from_file(&args.config)?;
     info!("Configuration loaded from {}", args.config);
 
-    // Test device code request
-    let client = reqwest::Client::new();
-    info!("Requesting device code from GitHub...");
-    
-    let device_code_response = auth::request_device_code(
-        &client,
-        &config.github.device_code_url,
-        &config.github.client_id,
-    ).await?;
-    
-    info!("Device code received!");
-    info!("Device code: {} (save this for token polling)", device_code_response.device_code);
-    info!("Visit: {}", device_code_response.verification_uri);
-    info!("Enter code: {}", device_code_response.user_code);
-    info!("Device code expires in: {} seconds", device_code_response.expires_in);
-    info!("Poll interval: {} seconds", device_code_response.interval);
+    // Handle login if requested
+    if args.login {
+        return login::login(&config).await;
+    }
+
+    // Default: start proxy server (to be implemented)
+    info!("Proxy server mode - not yet implemented");
+    info!("Use --login to authenticate with GitHub");
 
     Ok(())
 }
