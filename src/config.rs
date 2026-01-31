@@ -10,6 +10,7 @@ pub struct Config {
 #[derive(Debug, Deserialize, Clone)]
 pub struct GithubConfig {
     pub device_code_url: String,
+    pub oauth_token_url: String,
     pub client_id: String,
 }
 
@@ -39,6 +40,10 @@ mod tests {
         assert_eq!(
             config.github.device_code_url,
             "https://github.com/login/device/code"
+        );
+        assert_eq!(
+            config.github.oauth_token_url,
+            "https://github.com/login/oauth/access_token"
         );
         assert_eq!(config.github.client_id, "Iv1.b507a08c87ecfe98");
     }
