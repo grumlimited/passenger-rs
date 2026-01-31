@@ -1,5 +1,6 @@
 use anyhow::Result;
 use reqwest::Client;
+use std::io::{self, Write};
 use tracing::info;
 
 use crate::auth;
@@ -18,13 +19,27 @@ pub async fn login(config: &Config) -> Result<()> {
     ).await?;
     
     info!("Device code received!");
-    info!("Visit: {}", device_code_response.verification_uri);
-    info!("Enter code: {}", device_code_response.user_code);
-    info!("Device code expires in: {} seconds", device_code_response.expires_in);
-    info!("Poll interval: {} seconds", device_code_response.interval);
+    println!();
+    println!("=================================================================");
+    println!("  AUTHORIZATION REQUIRED");
+    println!("=================================================================");
+    println!();
+    println!("  1. Visit: {}", device_code_response.verification_uri);
+    println!("  2. Enter code: {}", device_code_response.user_code);
+    println!();
+    println!("  Device code expires in: {} seconds", device_code_response.expires_in);
+    println!();
+    println!("=================================================================");
+    println!();
+    print!("Once you have authorized the device, press ENTER to continue...");
+    io::stdout().flush()?;
     
-    // Step 2: Wait for user to authorize device
-    info!("Waiting for authorization...");
+    // Wait for user to press Enter
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    
+    // Step 2: Poll for access token
+    info!("Checking authorization status...");
     let access_token_response = auth::poll_for_access_token(
         &client,
         &config.github.oauth_token_url,
