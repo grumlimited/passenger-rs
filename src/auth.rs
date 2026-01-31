@@ -18,6 +18,7 @@ pub struct DeviceCodeResponse {
 /// Response from GitHub access token request
 #[derive(Debug, Deserialize)]
 pub struct AccessTokenResponse {
+    #[allow(dead_code)]
     pub access_token: String,
     pub token_type: String,
     pub scope: String,
