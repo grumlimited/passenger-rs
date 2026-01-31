@@ -3,7 +3,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::time::sleep;
-use tracing::info;
+use tracing::{debug, info, warn};
 
 /// Response from GitHub device code request
 #[derive(Debug, Deserialize)]
@@ -183,12 +183,12 @@ pub async fn poll_for_access_token(
         if let Ok(error_response) = serde_json::from_str::<AccessTokenError>(&response_text) {
             match error_response.error.as_str() {
                 "authorization_pending" => {
-                    info!("Waiting for user to authorize device...");
+                    debug!("Waiting for user to authorize device...");
                     sleep(Duration::from_secs(interval)).await;
                     continue;
                 }
                 "slow_down" => {
-                    info!("Rate limited, slowing down polling...");
+                    warn!("Rate limited, slowing down polling...");
                     sleep(Duration::from_secs(interval + 5)).await;
                     continue;
                 }
@@ -207,11 +207,11 @@ pub async fn poll_for_access_token(
                 }
             }
         }
-        
+
         // Try to parse as success response
         let token_response: AccessTokenResponse = serde_json::from_str(&response_text)
             .context("Failed to parse access token response")?;
-        
+
         info!("Access token received successfully");
         return Ok(token_response);
     }
