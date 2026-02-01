@@ -5,6 +5,7 @@ mod login;
 mod server;
 mod server_chat_completion;
 mod server_list_models;
+mod server_ollama_chat;
 mod storage;
 mod token_manager;
 
@@ -50,6 +51,10 @@ async fn main() -> Result<()> {
     info!("Server listening on http://{}", server.addr);
     info!(
         "OpenAI API endpoint: http://{}/v1/chat/completions",
+        server.addr
+    );
+    info!(
+        "Ollama API endpoint: http://{}/v1/chat",
         server.addr
     );
     info!("Models endpoint: http://{}/v1/models", server.addr);

@@ -1,0 +1,47 @@
+{
+  "model": "<string>",
+  "created_at": "2023-11-07T05:31:56Z",
+  "message": {
+    "role": "assistant",
+    "content": "<string>",
+    "thinking": "<string>",
+    "tool_calls": [
+      {
+        "function": {
+          "name": "<string>",
+          "description": "<string>",
+          "arguments": {}
+        }
+      }
+    ],
+    "images": [
+      "<string>"
+    ]
+  },
+  "done": true,
+  "done_reason": "<string>",
+  "total_duration": 123,
+  "load_duration": 123,
+  "prompt_eval_count": 123,
+  "prompt_eval_duration": 123,
+  "eval_count": 123,
+  "eval_duration": 123,
+  "logprobs": [
+    {
+      "token": "<string>",
+      "logprob": 123,
+      "bytes": [
+        123
+      ],
+      "top_logprobs": [
+        {
+          "token": "<string>",
+          "logprob": 123,
+          "bytes": [
+            123
+          ]
+        }
+      ]
+    }
+  ]
+}
