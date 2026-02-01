@@ -42,7 +42,7 @@ impl Args {
     /// Validate that the config file exists
     pub fn validate_config_path(&self) -> Result<()> {
         let config_path = Path::new(&self.config);
-        
+
         if !config_path.exists() {
             return Err(anyhow::anyhow!(
                 "Configuration file does not exist: {}\n\
@@ -176,4 +176,3 @@ impl Args {
         Ok(())
     }
 }
-
