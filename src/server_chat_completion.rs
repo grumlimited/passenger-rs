@@ -181,6 +181,10 @@ impl CoPilotChatCompletions for Server {
         let openai_response = OpenAIChatResponse {
             id: copilot_response.id,
             object: "chat.completion".to_string(),
+            // IMPORTANT: Handle optional `created` field from GitHub Copilot API
+            // - GitHub Copilot's response may omit the `created` field
+            // - OpenAI's API spec requires `created` as a mandatory integer (Unix timestamp)
+            // - We default to the current timestamp if Copilot doesn't provide one
             created: copilot_response
                 .created
                 .unwrap_or(since_the_epoch.as_secs()),
