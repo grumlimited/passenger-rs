@@ -65,8 +65,12 @@ mod tests {
             "https://api.github.com/copilot_internal/v2/token"
         );
         assert_eq!(config.github.client_id, "Iv1.b507a08c87ecfe98");
+        assert_eq!(
+            config.github.copilot_models_url,
+            "https://models.github.ai/catalog/models"
+        );
         assert_eq!(config.copilot.api_base_url, "https://api.githubcopilot.com");
-        assert_eq!(config.server.port, 8080);
+        assert_eq!(config.server.port, 8081);
         assert_eq!(config.server.host, "127.0.0.1");
     }
 }
