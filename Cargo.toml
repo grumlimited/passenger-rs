@@ -2,6 +2,11 @@
 name = "passenger-rs"
 version = "0.1.0"
 edition = "2021"
+license = "GPL-3.0"
+description = "A high-performance Rust-based proxy server that converts GitHub Copilot into an OpenAI-compatible API"
+repository = "https://github.com/yourusername/passenger-rs"
+keywords = ["github", "copilot", "openai", "proxy", "api"]
+categories = ["web-programming", "api-bindings"]
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
