@@ -1,6 +1,6 @@
 use crate::server::{AppError, AppState, Server};
 use axum::{extract::State, Json};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::sync::Arc;
 use tracing::log::{error, info};
 
@@ -37,11 +37,21 @@ impl From<CopilotModel> for OpenAIModel {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-// #[serde(transparent)]
+#[derive(Debug, Serialize)]
 pub struct CopilotModelsResponse {
     #[serde(default)]
     pub models: Vec<CopilotModel>,
+}
+
+impl<'de> Deserialize<'de> for CopilotModelsResponse {
+    fn deserialize<D>(deserializer: D) -> Result<CopilotModelsResponse, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let models = Vec::<CopilotModel>::deserialize(deserializer)?;
+
+        Ok(CopilotModelsResponse { models })
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -54,7 +64,7 @@ pub struct CopilotModel {
     pub html_url: String,
     pub version: String,
     pub capabilities: Vec<String>,
-    pub limits: Vec<CopilotModelLimits>,
+    pub limits: CopilotModelLimits,
     pub rate_limit_tier: String,
     pub supported_input_modalities: Vec<String>,
     pub supported_output_modalities: Vec<String>,
@@ -64,7 +74,7 @@ pub struct CopilotModel {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CopilotModelLimits {
     max_input_tokens: u64,
-    max_output_tokens: u64,
+    max_output_tokens: Option<u64>,
 }
 
 pub(crate) trait CoPilotListModels {
@@ -84,13 +94,12 @@ impl CoPilotListModels for Server {
         // Get a valid Copilot token
         let token = Self::get_token(state.clone()).await?;
 
-        let copilot_url = format!("{}/catalog/models", state.config.copilot.api_base_url);
+        println!("{}", state.config.github.copilot_models_url);
 
         let response = state
             .client
-            .get(&copilot_url)
+            .get(&state.config.github.copilot_models_url)
             .header("Authorization", format!("Bearer {}", token.token))
-            .header("Copilot-Integration-Id", "vscode-chat")
             .header("Content-Type", "application/json")
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
@@ -124,5 +133,19 @@ impl CoPilotListModels for Server {
 
         info!("Successfully processed model request");
         Ok(Json(copilot_response.into()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::server_list_models::CopilotModelsResponse;
+
+    #[test]
+    fn test_parse_json_models_response() {
+        let json = include_str!("resources/models_response.json");
+
+        let json = serde_json::from_str::<CopilotModelsResponse>(json).unwrap();
+
+        assert_eq!(2, json.models.len())
     }
 }

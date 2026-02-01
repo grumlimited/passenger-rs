@@ -8,6 +8,9 @@ oauth_token_url = "https://github.com/login/oauth/access_token"
 # GitHub Copilot token endpoint
 copilot_token_url = "https://api.github.com/copilot_internal/v2/token"
 
+# GitHub Copilot token endpoint
+copilot_models_url = "https://models.github.ai/catalog/models"
+
 # GitHub Copilot public client ID (same for all users)
 client_id = "Iv1.b507a08c87ecfe98"
 

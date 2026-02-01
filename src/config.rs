@@ -14,6 +14,7 @@ pub struct GithubConfig {
     pub device_code_url: String,
     pub oauth_token_url: String,
     pub copilot_token_url: String,
+    pub copilot_models_url: String,
     pub client_id: String,
 }
 

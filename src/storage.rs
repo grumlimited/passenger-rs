@@ -1,4 +1,4 @@
-use crate::auth::CopilotTokenResponse;
+use crate::auth::{AccessTokenResponse, CopilotTokenResponse};
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::PathBuf;
@@ -12,6 +12,10 @@ pub fn get_storage_dir() -> Result<PathBuf> {
 
     let config_dir = PathBuf::from(home).join(".config").join("passenger-rs");
     Ok(config_dir)
+}
+
+pub fn get_access_token_path() -> Result<PathBuf> {
+    Ok(get_storage_dir()?.join("access_token.json"))
 }
 
 /// Get the token file path (~/.config/passenger-rs/token.json)
@@ -34,6 +38,21 @@ pub fn save_token(token: &CopilotTokenResponse) -> Result<()> {
     Ok(())
 }
 
+pub fn save_access_token(token: &AccessTokenResponse) -> Result<()> {
+    let storage_dir = get_storage_dir()?;
+
+    // Create the directory if it doesn't exist
+    fs::create_dir_all(&storage_dir).context("Failed to create storage directory")?;
+
+    let token_path = get_access_token_path()?;
+    let token_json =
+        serde_json::to_string_pretty(token).context("Failed to serialize access token")?;
+
+    fs::write(&token_path, token_json).context("Failed to write access token to disk")?;
+
+    Ok(())
+}
+
 /// Load a Copilot token from disk
 pub fn load_token() -> Result<CopilotTokenResponse> {
     let token_path = get_token_path()?;
@@ -44,6 +63,19 @@ pub fn load_token() -> Result<CopilotTokenResponse> {
         serde_json::from_str(&token_json).context("Failed to deserialize token")?;
 
     Ok(token)
+}
+
+pub fn load_access_token() -> Result<Option<AccessTokenResponse>> {
+    let token_path = get_access_token_path()?;
+
+    match fs::read_to_string(&token_path) {
+        Ok(token_json) => {
+            let token: AccessTokenResponse =
+                serde_json::from_str(&token_json).context("Failed to deserialize token")?;
+            Ok(Some(token))
+        }
+        Err(_) => Ok(None),
+    }
 }
 
 /// Check if a token exists on disk

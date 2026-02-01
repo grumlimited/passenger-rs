@@ -82,7 +82,7 @@ impl Server {
     }
 
     pub(crate) async fn get_token(state: Arc<AppState>) -> Result<CopilotTokenResponse, AppError> {
-        token_manager::get_valid_token(&state.config, &state.client, None)
+        token_manager::get_valid_token(&state.config, &state.client)
             .await
             .map_err(|e| {
                 error!("Failed to get valid token: {}", e);

@@ -1,0 +1,58 @@
+[
+  {
+    "id": "openai/gpt-4.1",
+    "name": "OpenAI GPT-4.1",
+    "publisher": "OpenAI",
+    "summary": "gpt-4.1 outperforms gpt-4o across the board, with major gains in coding, instruction following, and long-context understanding",
+    "rate_limit_tier": "high",
+    "supported_input_modalities": [
+      "text",
+      "image"
+    ],
+    "supported_output_modalities": [
+      "text"
+    ],
+    "tags": [
+      "multipurpose",
+      "multilingual",
+      "multimodal"
+    ],
+    "registry": "azure-openai",
+    "version": "2025-04-14",
+    "capabilities": [
+      "agents",
+      "streaming",
+      "tool-calling",
+      "agentsV2"
+    ],
+    "limits": {
+      "max_input_tokens": 1048576,
+      "max_output_tokens": 32768
+    },
+    "html_url": "https://github.com/marketplace/models/azure-openai/gpt-4-1"
+  },
+  {
+    "id": "openai/text-embedding-3-small",
+    "name": "OpenAI Text Embedding 3 (small)",
+    "publisher": "OpenAI",
+    "summary": "Text-embedding-3 series models are the latest and most capable embedding model from OpenAI.",
+    "rate_limit_tier": "embeddings",
+    "supported_input_modalities": [
+      "text"
+    ],
+    "supported_output_modalities": [
+      "embeddings"
+    ],
+    "tags": [
+      "rag"
+    ],
+    "registry": "azure-openai",
+    "version": "1",
+    "capabilities": [],
+    "limits": {
+      "max_input_tokens": 8191,
+      "max_output_tokens": null
+    },
+    "html_url": "https://github.com/marketplace/models/azure-openai/text-embedding-3-small"
+  }
+]

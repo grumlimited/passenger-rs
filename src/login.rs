@@ -41,6 +41,7 @@ pub async fn login(config: &Config) -> Result<()> {
     .await?;
 
     info!("Access token received");
+    storage::save_access_token(&access_token_response)?;
 
     // Stop spinner
     ct.cancel();
@@ -66,8 +67,14 @@ pub async fn login(config: &Config) -> Result<()> {
     success_pb.println("✓ Login successful!");
     success_pb.println("");
     success_pb.println(format!("Copilot token: {}", copilot_token_response.token));
-    success_pb.println(format!("Expires at: {} (Unix timestamp)", copilot_token_response.expires_at));
-    success_pb.println(format!("Refresh in: {} seconds", copilot_token_response.refresh_in));
+    success_pb.println(format!(
+        "Expires at: {} (Unix timestamp)",
+        copilot_token_response.expires_at
+    ));
+    success_pb.println(format!(
+        "Refresh in: {} seconds",
+        copilot_token_response.refresh_in
+    ));
     success_pb.println(format!("Token saved to: {}", token_path.display()));
     success_pb.println("");
     success_pb.finish_and_clear();

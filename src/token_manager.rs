@@ -1,4 +1,4 @@
-use crate::auth::{self, CopilotTokenResponse};
+use crate::auth::{self, AccessTokenResponse, CopilotTokenResponse};
 use crate::config::Config;
 use crate::storage;
 use anyhow::{bail, Context, Result};
@@ -9,7 +9,7 @@ use tracing::{info, warn};
 pub async fn get_valid_token(
     config: &Config,
     client: &Client,
-    github_access_token: Option<&str>,
+    // github_access_token: Option<&str>,
 ) -> Result<CopilotTokenResponse> {
     // Try to load token from disk
     if storage::token_exists() {
@@ -29,6 +29,7 @@ pub async fn get_valid_token(
     }
 
     // If we get here, we need to refresh the token
+    let github_access_token = storage::load_access_token()?;
     refresh_token(config, client, github_access_token).await
 }
 
@@ -36,29 +37,23 @@ pub async fn get_valid_token(
 async fn refresh_token(
     config: &Config,
     client: &Client,
-    github_access_token: Option<&str>,
+    github_access_token: Option<AccessTokenResponse>,
 ) -> Result<CopilotTokenResponse> {
     let access_token = match github_access_token {
-        Some(token) => token.to_string(),
+        Some(token) => token.access_token.to_string(),
         None => {
-            bail!(
-                "No GitHub access token available. Please run with --login to authenticate."
-            );
+            bail!("No GitHub access token available. Please run with --login to authenticate.");
         }
     };
 
     info!("Refreshing Copilot token...");
-    let copilot_token = auth::get_copilot_token(
-        client,
-        &config.github.copilot_token_url,
-        &access_token,
-    )
-    .await
-    .context("Failed to refresh Copilot token")?;
+    let copilot_token =
+        auth::get_copilot_token(client, &config.github.copilot_token_url, &access_token)
+            .await
+            .context("Failed to refresh Copilot token")?;
 
     // Save the new token
-    storage::save_token(&copilot_token)
-        .context("Failed to save refreshed token")?;
+    storage::save_token(&copilot_token).context("Failed to save refreshed token")?;
 
     info!("Copilot token refreshed and saved");
     Ok(copilot_token)
@@ -72,15 +67,15 @@ mod tests {
     async fn test_get_valid_token_no_cache() {
         // This test requires a valid GitHub access token
         // In a real scenario, we'd mock the HTTP calls
-        
+
         // Clean up any existing token
         let _ = storage::delete_token();
-        
+
         let config = Config::from_file("config.toml").unwrap();
         let client = Client::new();
-        
+
         // Without access token, should fail
-        let result = get_valid_token(&config, &client, None).await;
+        let result = get_valid_token(&config, &client).await;
         assert!(result.is_err());
     }
 
@@ -88,9 +83,12 @@ mod tests {
     async fn test_refresh_token_no_access_token() {
         let config = Config::from_file("config.toml").unwrap();
         let client = Client::new();
-        
+
         let result = refresh_token(&config, &client, None).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("No GitHub access token"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No GitHub access token"));
     }
 }
