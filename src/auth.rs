@@ -107,7 +107,11 @@ pub async fn request_device_code(
     let status = response.status();
     if !status.is_success() {
         let error_text = response.text().await.unwrap_or_default();
-        anyhow::bail!("Device code request failed with status {}: {}", status, error_text);
+        anyhow::bail!(
+            "Device code request failed with status {}: {}",
+            status,
+            error_text
+        );
     }
 
     response
@@ -176,7 +180,7 @@ pub async fn poll_for_access_token(
 
     loop {
         info!("Polling for access token...");
-        
+
         let response = client
             .post(oauth_token_url)
             .header("accept", "application/json")
@@ -186,8 +190,11 @@ pub async fn poll_for_access_token(
             .await
             .context("Failed to send access token request")?;
 
-        let response_text = response.text().await.context("Failed to read response body")?;
-        
+        let response_text = response
+            .text()
+            .await
+            .context("Failed to read response body")?;
+
         // Try to parse as error response first (has "error" field)
         if let Ok(error_response) = serde_json::from_str::<AccessTokenError>(&response_text) {
             match error_response.error.as_str() {
@@ -282,7 +289,10 @@ pub async fn get_copilot_token(
     let response = client
         .get(copilot_token_url)
         .header("authorization", format!("token {}", access_token))
-        .header("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0")
+        .header(
+            "user-agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+        )
         .header("accept", "application/json")
         .header("accept-language", "en-US,en;q=0.9")
         .send()
@@ -311,9 +321,9 @@ pub async fn get_copilot_token(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::{Mock, MockServer, ResponseTemplate};
-    use wiremock::matchers::{method, path, header, body_json};
     use serde_json::json;
+    use wiremock::matchers::{body_json, header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[tokio::test]
     async fn test_request_device_code_success() {
@@ -412,7 +422,8 @@ mod tests {
             "Iv1.b507a08c87ecfe98",
             "test_device_code",
             1, // Short interval for testing
-        ).await;
+        )
+        .await;
 
         // Assertions
         assert!(result.is_ok(), "Request should succeed");
@@ -443,13 +454,9 @@ mod tests {
         // Make request
         let client = Client::new();
         let url = format!("{}/oauth/access_token", mock_server.uri());
-        let result = poll_for_access_token(
-            &client,
-            &url,
-            "Iv1.b507a08c87ecfe98",
-            "test_device_code",
-            1,
-        ).await;
+        let result =
+            poll_for_access_token(&client, &url, "Iv1.b507a08c87ecfe98", "test_device_code", 1)
+                .await;
 
         // Assertions
         assert!(result.is_err(), "Request should fail with expired token");
@@ -484,11 +491,7 @@ mod tests {
         // Make request
         let client = Client::new();
         let url = format!("{}/copilot_internal/v2/token", mock_server.uri());
-        let result = get_copilot_token(
-            &client,
-            &url,
-            "gho_test_access_token",
-        ).await;
+        let result = get_copilot_token(&client, &url, "gho_test_access_token").await;
 
         // Assertions
         assert!(result.is_ok(), "Request should succeed");
@@ -513,11 +516,7 @@ mod tests {
         // Make request
         let client = Client::new();
         let url = format!("{}/copilot_internal/v2/token", mock_server.uri());
-        let result = get_copilot_token(
-            &client,
-            &url,
-            "invalid_token",
-        ).await;
+        let result = get_copilot_token(&client, &url, "invalid_token").await;
 
         // Assertions
         assert!(result.is_err(), "Request should fail with 401");
@@ -525,4 +524,3 @@ mod tests {
         assert!(error.to_string().contains("401"));
     }
 }
-
