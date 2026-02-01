@@ -39,6 +39,28 @@ impl Args {
         Self::parse()
     }
 
+    /// Validate that the config file exists
+    pub fn validate_config_path(&self) -> Result<()> {
+        let config_path = Path::new(&self.config);
+        
+        if !config_path.exists() {
+            return Err(anyhow::anyhow!(
+                "Configuration file does not exist: {}\n\
+                 Please create a config.toml file or specify a valid path with --config",
+                self.config
+            ));
+        }
+
+        if !config_path.is_file() {
+            return Err(anyhow::anyhow!(
+                "Configuration path is not a file: {}",
+                self.config
+            ));
+        }
+
+        Ok(())
+    }
+
     /// Execute the appropriate command based on parsed arguments
     /// Returns Ok(true) if a command was executed, Ok(false) if server should start
     pub async fn execute_command(&self, config: &Config) -> Result<bool> {

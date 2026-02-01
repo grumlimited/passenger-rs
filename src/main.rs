@@ -27,6 +27,9 @@ async fn main() -> Result<()> {
 
     info!("Starting passenger-rs - GitHub Copilot Proxy");
 
+    // Validate configuration file exists
+    args.validate_config_path()?;
+
     // Load configuration
     let config = config::Config::from_file(&args.config)?;
     info!("Configuration loaded from {}", args.config);
