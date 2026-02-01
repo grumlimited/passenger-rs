@@ -33,3 +33,11 @@ tarpaulin-report.html
 
 # Documentation
 /doc/
+
+# packaging
+build-aux/arch/passenger-rs-bin/pkg/
+build-aux/arch/passenger-rs-bin/src/
+.SRCINFO
+*.zst
+/build-aux/arch/passenger-rs-bin/config.toml
+/build-aux/arch/passenger-rs-bin/passenger-rs
