@@ -1,6 +1,6 @@
 # passenger-rs
 
-[![CI](https://github.com/yourusername/passenger-rs/workflows/CI/badge.svg)](https://github.com/yourusername/passenger-rs/actions)
+[![CI](https://github.com/grumlimited/passenger-rs/workflows/CI/badge.svg)](https://github.com/grumlimited/passenger-rs/actions)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 
