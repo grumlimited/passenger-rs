@@ -54,7 +54,7 @@ async fn main() -> Result<()> {
         server.addr
     );
     info!(
-        "Ollama API endpoint: http://{}/v1/chat",
+        "Ollama API endpoint: http://{}/v1/api/chat",
         server.addr
     );
     info!("Models endpoint: http://{}/v1/models", server.addr);

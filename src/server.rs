@@ -76,7 +76,7 @@ impl Server {
     fn create_router(state: Arc<AppState>) -> Router {
         Router::new()
             .route("/v1/chat/completions", post(Self::chat_completions))
-            .route("/v1/chat", post(Self::ollama_chat))
+            .route("/v1/api/chat", post(Self::ollama_chat))
             .route("/v1/models", get(Self::list_models))
             .route("/health", get(health_check))
             .with_state(state)

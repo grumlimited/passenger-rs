@@ -11,9 +11,10 @@ A high-performance Rust-based proxy server that converts GitHub Copilot into an 
 - **GitHub OAuth Authentication**: Secure device flow authentication with GitHub
 - **Token Management**: Automatic token caching, validation, and refresh
 - **OpenAI Compatibility**: Drop-in replacement for OpenAI API clients
+- **Ollama Compatibility**: Ollama-format responses via `/v1/api/chat` endpoint
 - **Custom Token Paths**: Flexible token storage locations
 - **Health Monitoring**: Built-in health check endpoint
-- **Request/Response Transformation**: Seamless conversion between OpenAI and Copilot formats
+- **Request/Response Transformation**: Seamless conversion between OpenAI, Ollama, and Copilot formats
 - **High Performance**: Built with Rust, Axum, and Tokio for maximum efficiency
 
 ## 📋 Table of Contents
@@ -58,8 +59,21 @@ The server will start on `http://127.0.0.1:8081` by default.
 
 ### 4. Test the connection
 
+**OpenAI format:**
 ```bash
 curl http://127.0.0.1:8081/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [
+      {"role": "user", "content": "Hello, how are you?"}
+    ]
+  }'
+```
+
+**Ollama format:**
+```bash
+curl http://127.0.0.1:8081/v1/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-4",
@@ -167,7 +181,7 @@ console.log(response.choices[0].message.content);
 #### cURL
 
 ```bash
-# Chat completion
+# Chat completion (OpenAI format)
 curl http://127.0.0.1:8081/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
@@ -178,6 +192,16 @@ curl http://127.0.0.1:8081/v1/chat/completions \
     ],
     "temperature": 0.7,
     "max_tokens": 500
+  }'
+
+# Chat completion (Ollama format)
+curl http://127.0.0.1:8081/v1/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [
+      {"role": "user", "content": "How do I reverse a string in Rust?"}
+    ]
   }'
 
 # List available models
@@ -397,6 +421,53 @@ OpenAI-compatible chat completions endpoint.
 - `stop` - Stop sequences
 
 **Note:** Streaming is not yet supported. The `stream` parameter is ignored.
+
+### POST /v1/api/chat
+
+Ollama-compatible chat endpoint.
+
+**Request:**
+```json
+{
+  "model": "gpt-4",
+  "messages": [
+    {"role": "user", "content": "Hello!"}
+  ],
+  "temperature": 0.7,
+  "max_tokens": 100
+}
+```
+
+**Response:**
+```json
+{
+  "model": "gpt-4",
+  "created_at": "2023-11-07T05:31:56Z",
+  "message": {
+    "role": "assistant",
+    "content": "Hello! How can I help you today?"
+  },
+  "done": true,
+  "done_reason": "stop",
+  "prompt_eval_count": 12,
+  "eval_count": 10
+}
+```
+
+**Supported Parameters:**
+- Same as `/v1/chat/completions`
+
+**Response Fields:**
+- `model` - Model identifier
+- `created_at` - RFC3339 timestamp (e.g., "2023-11-07T05:31:56Z")
+- `message` - Message object with `role` and `content`
+- `done` - Boolean indicating completion
+- `done_reason` - Reason for completion (e.g., "stop", "length")
+- `prompt_eval_count` - Number of tokens in prompt (optional)
+- `eval_count` - Number of tokens generated (optional)
+- `total_duration`, `load_duration`, `prompt_eval_duration`, `eval_duration` - Timing metrics (optional)
+
+**Note:** This endpoint accepts OpenAI-format requests but returns Ollama-format responses for compatibility with Ollama clients.
 
 ### GET /v1/models
 
