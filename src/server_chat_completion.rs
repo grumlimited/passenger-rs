@@ -2,6 +2,7 @@ use crate::server::{AppError, AppState, Server};
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::log::{error, info};
 
 /// OpenAI-compatible chat completion request
@@ -32,6 +33,8 @@ pub struct OpenAIChatResponse {
 pub struct CopilotMessage {
     pub role: String,
     pub content: String,
+    #[serde(default)]
+    pub padding: Option<String>,
 }
 
 /// Copilot chat completion request
@@ -51,8 +54,11 @@ pub struct CopilotChatRequest {
 #[derive(Debug, Deserialize)]
 pub struct CopilotChatResponse {
     pub id: String,
-    pub created: u64,
+    #[serde(default)]
+    pub created: Option<u64>,
     pub model: String,
+    #[allow(dead_code)]
+    pub system_fingerprint: String,
     pub choices: Vec<CopilotChoice>,
     #[serde(default)]
     pub usage: Option<CopilotUsage>,
@@ -120,6 +126,7 @@ impl CoPilotChatCompletions for Server {
                 .map(|m| CopilotMessage {
                     role: m.role.clone(),
                     content: m.content.clone(),
+                    padding: None,
                 })
                 .collect(),
             model: request.model,
@@ -166,11 +173,17 @@ impl CoPilotChatCompletions for Server {
             AppError::InternalServerError(format!("Failed to parse Copilot response: {}", e))
         })?;
 
+        let since_the_epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time should go forward");
+
         // Transform Copilot response to OpenAI format
         let openai_response = OpenAIChatResponse {
             id: copilot_response.id,
             object: "chat.completion".to_string(),
-            created: copilot_response.created,
+            created: copilot_response
+                .created
+                .unwrap_or(since_the_epoch.as_secs()),
             model: copilot_response.model,
             choices: copilot_response
                 .choices
@@ -200,5 +213,105 @@ impl CoPilotChatCompletions for Server {
 
         info!("Successfully processed chat completion request");
         Ok(Json(openai_response))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_copilot_response_without_created() {
+        // Test parsing a Copilot response without the optional 'created' field
+        let json = include_str!("resources/chat_completions_response.json");
+        let result = serde_json::from_str::<CopilotChatResponse>(json);
+
+        assert!(
+            result.is_ok(),
+            "Failed to parse response: {:?}",
+            result.err()
+        );
+        let response = result.unwrap();
+
+        assert_eq!(response.id, "chatcmpl-D4RxeWmAd0lF5PPnCosBWQLmVXPlA");
+        assert_eq!(response.model, "gpt-4.1-2025-04-14");
+        assert!(response.created.is_none(), "Expected created to be None");
+        assert_eq!(response.choices.len(), 1);
+        assert_eq!(response.choices[0].message.content, "Hello, World!");
+    }
+
+    #[test]
+    fn test_parse_copilot_response_with_created() {
+        // Test parsing a Copilot response with the optional 'created' field
+        let json = r#"{
+            "id": "test-id",
+            "created": 1234567890,
+            "model": "gpt-4",
+            "system_fingerprint": "fp_test",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "Test response"
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "total_tokens": 15
+            }
+        }"#;
+
+        let result = serde_json::from_str::<CopilotChatResponse>(json);
+
+        assert!(
+            result.is_ok(),
+            "Failed to parse response: {:?}",
+            result.err()
+        );
+        let response = result.unwrap();
+
+        assert_eq!(response.id, "test-id");
+        assert_eq!(response.created, Some(1234567890));
+        assert_eq!(response.model, "gpt-4");
+    }
+
+    #[test]
+    fn test_openai_response_always_has_created() {
+        // Verify that OpenAI response always includes 'created' even when Copilot doesn't provide it
+        let copilot_response = CopilotChatResponse {
+            id: "test".to_string(),
+            created: None, // Copilot doesn't provide it
+            model: "gpt-4".to_string(),
+            system_fingerprint: "fp_test".to_string(),
+            choices: vec![],
+            usage: None,
+        };
+
+        let since_the_epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time should go forward");
+
+        let openai_response = OpenAIChatResponse {
+            id: copilot_response.id,
+            object: "chat.completion".to_string(),
+            created: copilot_response
+                .created
+                .unwrap_or(since_the_epoch.as_secs()),
+            model: copilot_response.model,
+            choices: vec![],
+            usage: OpenAIUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: 0,
+            },
+        };
+
+        // Verify that 'created' is always populated in OpenAI response
+        assert!(
+            openai_response.created > 0,
+            "OpenAI response must have a valid timestamp"
+        );
     }
 }
