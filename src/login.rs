@@ -1,6 +1,7 @@
 use crate::auth;
 use crate::auth::DeviceCodeResponse;
 use crate::config::Config;
+use crate::storage;
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
@@ -39,18 +40,39 @@ pub async fn login(config: &Config) -> Result<()> {
     )
     .await?;
 
+    info!("Access token received");
+
+    // Stop spinner
+    ct.cancel();
+
+    // Step 3: Get Copilot token
+    info!("Requesting Copilot token...");
+    let copilot_token_response = auth::get_copilot_token(
+        &client,
+        &config.github.copilot_token_url,
+        &access_token_response.access_token,
+    )
+    .await?;
+
+    // Save the token to disk
+    storage::save_token(&copilot_token_response)?;
+    let token_path = storage::get_token_path()?;
+
     // Display success information
     let success_pb = ProgressBar::new_spinner();
     success_pb.set_style(ProgressStyle::default_spinner().template("{msg}")?);
 
     success_pb.println("");
-    success_pb.println(format!("Token type: {}", access_token_response.token_type));
-    success_pb.println(format!("Scope: {}", access_token_response.scope));
+    success_pb.println("✓ Login successful!");
+    success_pb.println("");
+    success_pb.println(format!("Copilot token: {}", copilot_token_response.token));
+    success_pb.println(format!("Expires at: {} (Unix timestamp)", copilot_token_response.expires_at));
+    success_pb.println(format!("Refresh in: {} seconds", copilot_token_response.refresh_in));
+    success_pb.println(format!("Token saved to: {}", token_path.display()));
+    success_pb.println("");
     success_pb.finish_and_clear();
 
-    info!("Access token received");
-    // Stop spinner
-    ct.cancel();
+    info!("Copilot token received and ready to use");
 
     Ok(())
 }

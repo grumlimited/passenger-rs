@@ -5,5 +5,19 @@ device_code_url = "https://github.com/login/device/code"
 # GitHub OAuth access token endpoint
 oauth_token_url = "https://github.com/login/oauth/access_token"
 
+# GitHub Copilot token endpoint
+copilot_token_url = "https://api.github.com/copilot_internal/v2/token"
+
 # GitHub Copilot public client ID (same for all users)
 client_id = "Iv1.b507a08c87ecfe98"
+
+[copilot]
+# GitHub Copilot API base URL
+api_base_url = "https://api.githubcopilot.com"
+
+[server]
+# Port to listen on
+port = 8080
+
+# Host to bind to
+host = "127.0.0.1"

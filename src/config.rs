@@ -5,13 +5,27 @@ use std::fs;
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub github: GithubConfig,
+    pub copilot: CopilotConfig,
+    pub server: ServerConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct GithubConfig {
     pub device_code_url: String,
     pub oauth_token_url: String,
+    pub copilot_token_url: String,
     pub client_id: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct CopilotConfig {
+    pub api_base_url: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ServerConfig {
+    pub port: u16,
+    pub host: String,
 }
 
 impl Config {
@@ -45,6 +59,13 @@ mod tests {
             config.github.oauth_token_url,
             "https://github.com/login/oauth/access_token"
         );
+        assert_eq!(
+            config.github.copilot_token_url,
+            "https://api.github.com/copilot_internal/v2/token"
+        );
         assert_eq!(config.github.client_id, "Iv1.b507a08c87ecfe98");
+        assert_eq!(config.copilot.api_base_url, "https://api.githubcopilot.com");
+        assert_eq!(config.server.port, 8080);
+        assert_eq!(config.server.host, "127.0.0.1");
     }
 }

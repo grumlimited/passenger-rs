@@ -18,10 +18,19 @@ pub struct DeviceCodeResponse {
 /// Response from GitHub access token request
 #[derive(Debug, Deserialize)]
 pub struct AccessTokenResponse {
-    #[allow(dead_code)]
     pub access_token: String,
+    #[allow(dead_code)]
     pub token_type: String,
+    #[allow(dead_code)]
     pub scope: String,
+}
+
+/// Response from Copilot token request
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CopilotTokenResponse {
+    pub token: String,
+    pub expires_at: u64,
+    pub refresh_in: u64,
 }
 
 /// Error response from GitHub access token polling
@@ -217,6 +226,85 @@ pub async fn poll_for_access_token(
     }
 }
 
+/// Retrieve Copilot-specific token from GitHub access token
+///
+/// This function exchanges a GitHub OAuth access token for a Copilot-specific token
+/// that can be used with the Copilot API endpoints.
+///
+/// # Arguments
+/// * `client` - HTTP client to use for the request
+/// * `copilot_token_url` - GitHub Copilot token endpoint URL
+/// * `access_token` - GitHub OAuth access token from `poll_for_access_token()`
+///
+/// # Returns
+/// Copilot token response with token, expiration, and refresh time
+///
+/// # Example
+/// ```no_run
+/// use passenger_rs::auth::{request_device_code, poll_for_access_token, get_copilot_token};
+/// use reqwest::Client;
+///
+/// #[tokio::main]
+/// async fn main() -> anyhow::Result<()> {
+///     let client = Client::new();
+///     
+///     // Get device code and access token first...
+///     let device_resp = request_device_code(
+///         &client,
+///         "https://github.com/login/device/code",
+///         "Iv1.b507a08c87ecfe98"
+///     ).await?;
+///     
+///     let access_token_resp = poll_for_access_token(
+///         &client,
+///         "https://github.com/login/oauth/access_token",
+///         "Iv1.b507a08c87ecfe98",
+///         &device_resp.device_code,
+///         device_resp.interval,
+///     ).await?;
+///     
+///     // Get Copilot token
+///     let copilot_token = get_copilot_token(
+///         &client,
+///         "https://api.github.com/copilot_internal/v2/token",
+///         &access_token_resp.access_token,
+///     ).await?;
+///     
+///     println!("Copilot token: {}", copilot_token.token);
+///     Ok(())
+/// }
+/// ```
+pub async fn get_copilot_token(
+    client: &Client,
+    copilot_token_url: &str,
+    access_token: &str,
+) -> Result<CopilotTokenResponse> {
+    let response = client
+        .get(copilot_token_url)
+        .header("authorization", format!("token {}", access_token))
+        .send()
+        .await
+        .context("Failed to send Copilot token request")?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        anyhow::bail!(
+            "Copilot token request failed with status {}: {}",
+            status,
+            error_text
+        );
+    }
+
+    let copilot_token_response = response
+        .json::<CopilotTokenResponse>()
+        .await
+        .context("Failed to parse Copilot token response")?;
+
+    info!("Copilot token received successfully");
+    Ok(copilot_token_response)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -369,6 +457,69 @@ mod tests {
             "Expected error about expired token, got: {}",
             error_msg
         );
+    }
+
+    #[tokio::test]
+    async fn test_get_copilot_token_success() {
+        // Start mock server
+        let mock_server = MockServer::start().await;
+
+        // Setup mock response
+        let mock_response = json!({
+            "token": "copilot_test_token_abcdef123456",
+            "expires_at": 1735689600,
+            "refresh_in": 1500
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/copilot_internal/v2/token"))
+            .and(header("authorization", "token gho_test_access_token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&mock_response))
+            .mount(&mock_server)
+            .await;
+
+        // Make request
+        let client = Client::new();
+        let url = format!("{}/copilot_internal/v2/token", mock_server.uri());
+        let result = get_copilot_token(
+            &client,
+            &url,
+            "gho_test_access_token",
+        ).await;
+
+        // Assertions
+        assert!(result.is_ok(), "Request should succeed");
+        let response = result.unwrap();
+        assert_eq!(response.token, "copilot_test_token_abcdef123456");
+        assert_eq!(response.expires_at, 1735689600);
+        assert_eq!(response.refresh_in, 1500);
+    }
+
+    #[tokio::test]
+    async fn test_get_copilot_token_unauthorized() {
+        // Start mock server
+        let mock_server = MockServer::start().await;
+
+        // Setup mock error response
+        Mock::given(method("GET"))
+            .and(path("/copilot_internal/v2/token"))
+            .respond_with(ResponseTemplate::new(401).set_body_string("Unauthorized"))
+            .mount(&mock_server)
+            .await;
+
+        // Make request
+        let client = Client::new();
+        let url = format!("{}/copilot_internal/v2/token", mock_server.uri());
+        let result = get_copilot_token(
+            &client,
+            &url,
+            "invalid_token",
+        ).await;
+
+        // Assertions
+        assert!(result.is_err(), "Request should fail with 401");
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("401"));
     }
 }
 
