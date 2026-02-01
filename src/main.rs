@@ -2,12 +2,14 @@ mod auth;
 mod config;
 mod login;
 mod server;
+mod server_chat_completion;
+mod server_list_models;
 mod storage;
 mod token_manager;
 
+use crate::server::Server;
 use anyhow::Result;
 use clap::Parser;
-use reqwest::Client;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -56,22 +58,17 @@ async fn main() -> Result<()> {
 
     // Start proxy server
     info!("Starting OpenAI-compatible proxy server...");
-    
-    let client = Client::new();
-    let state = server::AppState {
-        config: config.clone(),
-        client,
-    };
+    let server = Server::new(&config);
 
-    let app = server::create_router(state);
-    let addr = format!("{}:{}", config.server.host, config.server.port);
-    
-    info!("Server listening on http://{}", addr);
-    info!("OpenAI API endpoint: http://{}/v1/chat/completions", addr);
-    info!("Models endpoint: http://{}/v1/models", addr);
-    
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await?;
+    info!("Server listening on http://{}", server.addr);
+    info!(
+        "OpenAI API endpoint: http://{}/v1/chat/completions",
+        server.addr
+    );
+    info!("Models endpoint: http://{}/v1/models", server.addr);
+
+    let listener = tokio::net::TcpListener::bind(&server.addr).await?;
+    axum::serve(listener, server.router).await?;
 
     Ok(())
 }

@@ -63,6 +63,7 @@ pub fn is_token_expired(token: &CopilotTokenResponse) -> bool {
 }
 
 /// Delete the stored token
+#[allow(unused)]
 pub fn delete_token() -> Result<()> {
     let token_path = get_token_path()?;
 

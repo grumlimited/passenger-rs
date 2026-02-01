@@ -17,7 +17,7 @@ api_base_url = "https://api.githubcopilot.com"
 
 [server]
 # Port to listen on
-port = 8080
+port = 8081
 
 # Host to bind to
 host = "127.0.0.1"
