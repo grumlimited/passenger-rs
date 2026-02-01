@@ -3,6 +3,7 @@ use crate::config::Config;
 use crate::storage;
 use anyhow::{bail, Context, Result};
 use reqwest::Client;
+use tracing::log::debug;
 use tracing::{info, warn};
 
 /// Get a valid Copilot token, either from cache or by refreshing
@@ -16,10 +17,10 @@ pub async fn get_valid_token(
         match storage::load_token() {
             Ok(token) => {
                 if !storage::is_token_expired(&token) {
-                    info!("Using cached Copilot token");
+                    debug!("Using cached Copilot token");
                     return Ok(token);
                 } else {
-                    warn!("Cached token is expired, refreshing...");
+                    debug!("Cached token is expired, refreshing...");
                 }
             }
             Err(e) => {
@@ -55,7 +56,7 @@ async fn refresh_token(
     // Save the new token
     storage::save_token(&copilot_token).context("Failed to save refreshed token")?;
 
-    info!("Copilot token refreshed and saved");
+    debug!("Copilot token refreshed and saved");
     Ok(copilot_token)
 }
 

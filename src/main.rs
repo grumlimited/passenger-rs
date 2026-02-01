@@ -53,10 +53,7 @@ async fn main() -> Result<()> {
         "OpenAI API endpoint: http://{}/v1/chat/completions",
         server.addr
     );
-    info!(
-        "Ollama API endpoint: http://{}/v1/api/chat",
-        server.addr
-    );
+    info!("Ollama API endpoint: http://{}/v1/api/chat", server.addr);
     info!("Models endpoint: http://{}/v1/models", server.addr);
 
     let listener = tokio::net::TcpListener::bind(&server.addr).await?;

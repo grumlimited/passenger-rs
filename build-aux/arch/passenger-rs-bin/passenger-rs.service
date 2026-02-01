@@ -1,0 +1,12 @@
+[Unit]
+Description=passenger-rs - GitHub Copilot Proxy
+After=network.target
+
+[Service]
+Environment="PUID=%U"
+Environment="PGID=%G"
+ExecStart=/opt/passenger-rs/bin/passenger-rs.sh
+
+[Install]
+WantedBy=default.target
+

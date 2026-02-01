@@ -1,0 +1,5 @@
+#!/bin/sh
+
+chmod +x /opt/passenger-rs/bin/passenger-rs.sh
+
+exit 0

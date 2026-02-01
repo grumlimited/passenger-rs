@@ -1,0 +1,50 @@
+# Maintainer: Romain Gallet <gr211 at users.noreply.github.com>
+# Contributor: Romain Gallet <gr211 at users.noreply.github.com>
+_packager="Romain Gallet <gr211 at users.noreply.github.com>"
+pkgver=0.1
+pkgname=('passenger-rs')
+pkgrel=1
+pkgdesc='A high-performance Rust-based proxy server that converts GitHub Copilot into an OpenAI-compatible API.'
+url="https://github.com/grumlimited/passenger-rs"
+arch=('x86_64')
+license=('GPL-3.0-or-later')
+groups=()
+depends=()
+makedepends=()
+checkdepends=()
+optdepends=()
+provides=()
+backup=()
+options=()
+source=("passenger-rs" "passenger-rs.sh" "passenger-rs.service" "config.toml")
+md5sums=('6b16d0fa9f14a183d3cb8a8fa6e0bebb'
+         'd43dd8bd87a869a24ee4cd1e2f861acb'
+         '616b7dfada2fb37c43f8a583e599db0e'
+         '5bbbd83237a9ef9e55b9adc99aa2be8e')
+ noextract=()
+
+package() {
+    dest=${pkgdir}/opt/passenger-rs
+    dest=${pkgdir}/opt/passenger-rs
+
+    mkdir -p ${dest}/bin
+    mkdir -p ${dest}/etc
+    mkdir -p ${pkgdir}/usr/lib/systemd/user/
+
+    cp passenger-rs ${dest}/bin
+    cp passenger-rs.sh ${dest}/bin
+    cp config.toml ${dest}/etc
+    cp passenger-rs.service ${pkgdir}/usr/lib/systemd/user/
+
+    chmod +x ${dest}/bin/passenger-rs.sh
+    chmod +x ${dest}/bin/passenger-rs
+}
+
+post_install() {
+    echo "passenger-rs has been installed successfully!"
+    echo ""
+    echo "IMPORTANT: First-time users need to login to GitHub Copilot by running:"
+    echo "  passenger-rs --login"
+    echo ""
+    echo "After logging in, you can start using passenger-rs."
+}

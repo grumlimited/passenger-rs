@@ -57,8 +57,9 @@ pub struct CopilotChatResponse {
     #[serde(default)]
     pub created: Option<u64>,
     pub model: String,
+    /// Optional system fingerprint (GitHub Copilot may omit this field)
     #[allow(dead_code)]
-    pub system_fingerprint: String,
+    pub system_fingerprint: Option<String>,
     pub choices: Vec<CopilotChoice>,
     #[serde(default)]
     pub usage: Option<CopilotUsage>,
@@ -66,7 +67,8 @@ pub struct CopilotChatResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct CopilotChoice {
-    pub index: u32,
+    /// Optional index (defaults to position in array if not provided)
+    pub index: Option<u32>,
     pub message: CopilotMessage,
     pub finish_reason: String,
 }
@@ -192,8 +194,10 @@ impl CoPilotChatCompletions for Server {
             choices: copilot_response
                 .choices
                 .into_iter()
-                .map(|c| OpenAIChoice {
-                    index: c.index,
+                .enumerate()
+                .map(|(i, c)| OpenAIChoice {
+                    // Use the index from Copilot if available, otherwise use position
+                    index: c.index.unwrap_or(i as u32),
                     message: OpenAIMessage {
                         role: c.message.role,
                         content: c.message.content,
@@ -288,7 +292,7 @@ mod tests {
             id: "test".to_string(),
             created: None, // Copilot doesn't provide it
             model: "gpt-4".to_string(),
-            system_fingerprint: "fp_test".to_string(),
+            system_fingerprint: Some("fp_test".to_string()),
             choices: vec![],
             usage: None,
         };
@@ -316,6 +320,93 @@ mod tests {
         assert!(
             openai_response.created > 0,
             "OpenAI response must have a valid timestamp"
+        );
+    }
+
+    #[test]
+    fn test_index_fallback_to_position() {
+        // Verify that when Copilot doesn't provide indices, we use array positions
+        let copilot_response = CopilotChatResponse {
+            id: "test".to_string(),
+            created: Some(1234567890),
+            model: "gpt-4".to_string(),
+            system_fingerprint: Some("fp_test".to_string()),
+            choices: vec![
+                CopilotChoice {
+                    index: None, // No index provided
+                    message: CopilotMessage {
+                        role: "assistant".to_string(),
+                        content: "First response".to_string(),
+                        padding: None,
+                    },
+                    finish_reason: "stop".to_string(),
+                },
+                CopilotChoice {
+                    index: Some(5), // Explicit index provided
+                    message: CopilotMessage {
+                        role: "assistant".to_string(),
+                        content: "Second response".to_string(),
+                        padding: None,
+                    },
+                    finish_reason: "stop".to_string(),
+                },
+                CopilotChoice {
+                    index: None, // No index provided
+                    message: CopilotMessage {
+                        role: "assistant".to_string(),
+                        content: "Third response".to_string(),
+                        padding: None,
+                    },
+                    finish_reason: "stop".to_string(),
+                },
+            ],
+            usage: None,
+        };
+
+        let since_the_epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time should go forward");
+
+        let openai_response = OpenAIChatResponse {
+            id: copilot_response.id.clone(),
+            object: "chat.completion".to_string(),
+            created: copilot_response
+                .created
+                .unwrap_or(since_the_epoch.as_secs()),
+            model: copilot_response.model.clone(),
+            choices: copilot_response
+                .choices
+                .into_iter()
+                .enumerate()
+                .map(|(i, c)| OpenAIChoice {
+                    index: c.index.unwrap_or(i as u32),
+                    message: OpenAIMessage {
+                        role: c.message.role,
+                        content: c.message.content,
+                    },
+                    finish_reason: c.finish_reason,
+                })
+                .collect(),
+            usage: OpenAIUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: 0,
+            },
+        };
+
+        // Verify indices: 0 (from position), 5 (from Copilot), 2 (from position)
+        assert_eq!(openai_response.choices.len(), 3);
+        assert_eq!(
+            openai_response.choices[0].index, 0,
+            "First choice should use position 0"
+        );
+        assert_eq!(
+            openai_response.choices[1].index, 5,
+            "Second choice should use Copilot's index 5"
+        );
+        assert_eq!(
+            openai_response.choices[2].index, 2,
+            "Third choice should use position 2"
         );
     }
 }

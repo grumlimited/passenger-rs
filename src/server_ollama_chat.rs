@@ -201,9 +201,9 @@ mod tests {
             id: "test-id".to_string(),
             created: Some(1699334516),
             model: "gpt-4".to_string(),
-            system_fingerprint: "fp_test".to_string(),
+            system_fingerprint: Some("fp_test".to_string()),
             choices: vec![CopilotChoice {
-                index: 0,
+                index: Some(0),
                 message: CopilotMessage {
                     role: "assistant".to_string(),
                     content: "Hello, World!".to_string(),
@@ -237,9 +237,9 @@ mod tests {
             id: "test-id".to_string(),
             created: None,
             model: "gpt-4".to_string(),
-            system_fingerprint: "fp_test".to_string(),
+            system_fingerprint: Some("fp_test".to_string()),
             choices: vec![CopilotChoice {
-                index: 0,
+                index: Some(0),
                 message: CopilotMessage {
                     role: "assistant".to_string(),
                     content: "Test".to_string(),

@@ -2,13 +2,18 @@ on:
   release:
     types:
       - created
+  pull_request:
+    branches:
+      - master
 
 name: Release
 
 env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
   DEB_PKG_NAME: passenger-rs-${{ github.event.release.tag_name }}-x86_64.deb
   RPM_PKG_NAME: passenger-rs-${{ github.event.release.tag_name }}-1.x86_64.rpm
-  ARCH_PKG_NAME: passenger-rs-bin-${{ github.event.release.tag_name }}-1-x86_64.pkg.tar.zst
+  ARCH_PKG_NAME: passenger-rs-${{ github.event.release.tag_name }}-1-x86_64.pkg.tar.zst
 
 jobs:
   ci:
@@ -49,86 +54,122 @@ jobs:
         env:
           RELEASE_VERSION: ${{ github.event.release.tag_name }}
 
+      - name: md5sum
+        run: |
+          md5sum target/release/passenger-rs > target/release/passenger-rs-${{ github.event.release.tag_name }}.md5sum
+          cp target/release/passenger-rs target/release/passenger-rs-${{ github.event.release.tag_name }}
+
       - name: Upload binary
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
-            target/release/passenger-rs
+            target/release/passenger-rs-${{ github.event.release.tag_name }}
+            target/release/passenger-rs-${{ github.event.release.tag_name }}.md5sum
 
-#      - name: Create Debian package
-#        env:
-#          DESTDIR: '/tmp/passenger-rs-deb'
-#        run: |
-#          mkdir -p $DESTDIR
-#          RELEASE_VERSION=${{ github.event.release.tag_name }} DESTDIR=$DESTDIR cargo make debian-pkg
-#
-#      - name: Upload Debian release
-#        uses: softprops/action-gh-release@v1
-#        with:
-#          token: ${{ secrets.GITHUB_TOKEN }}
-#          files: |
-#            ${{ env.DEB_PKG_NAME }}
-#            ${{ env.DEB_PKG_NAME }}.md5sum
+  ubuntu:
+    runs-on: ubuntu-latest
+    needs: [ ci ]
 
-#  centos:
-#    runs-on: ubuntu-latest
-#    needs: [ ci ]
-#
-#    steps:
-#      - name: System dependencies
-#        run: |
-#          sudo apt-get update
-#          sudo apt-get install -y sudo make alien
-#
-#      - name: Create CentOS 8 package
-#        run: |
-#          wget https://github.com/grumlimited/passenger-rs/releases/download/${{ github.event.release.tag_name }}/${DEB_PKG_NAME} -O ${DEB_PKG_NAME}
-#
-#          alien -r -k --scripts --target=x86_64 ${DEB_PKG_NAME}
-#          md5sum ${RPM_PKG_NAME} >> ${RPM_PKG_NAME}.md5sum
-#
-#      - name: Upload CentOS 8 release
-#        uses: softprops/action-gh-release@v1
-#        with:
-#          token: ${{ secrets.GITHUB_TOKEN }}
-#          files: |
-#            ${{ env.RPM_PKG_NAME }}
-#            ${{ env.RPM_PKG_NAME }}.md5sum
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-#  arch:
-#    runs-on: ubuntu-latest
-#    needs: [ ci ]
-#
-#    steps:
-#      - name: Checkout
-#        uses: actions/checkout@v3
-#
-#      - name: Prepare arch package metadata
-#        run: |
-#          wget https://github.com/grumlimited/passenger-rs/releases/download/${{ github.event.release.tag_name }}/${DEB_PKG_NAME} -O build-aux/arch/passenger-rs-bin/${DEB_PKG_NAME}
-#
-#          MD5_SUM=$(md5sum build-aux/arch/passenger-rs-bin/${DEB_PKG_NAME}  | awk '{print $1}')
-#          awk -v q="'" -v MD5_SUM=$MD5_SUM -i inplace 'BEGINFILE{print "md5sums=(" q MD5_SUM q ")"}{print}' build-aux/arch/passenger-rs-bin/PKGBUILD
-#          awk -i inplace 'BEGINFILE{print "pkgver=${{ github.event.release.tag_name }}"}{print}' build-aux/arch/passenger-rs-bin/PKGBUILD
-#
-#      - name: Validate PKGBUILD
-#        id: validate-pkgbuild
-#        uses: 2m/arch-pkgbuild-builder@v1.16
-#        with:
-#          debug: true
-#          target: pkgbuild
-#          pkgname: build-aux/arch/passenger-rs-bin/
-#
-#      - name: Create arch package checksum file
-#        run: |
-#          sudo chown -R $USER .
-#          md5sum build-aux/arch/passenger-rs-bin/${ARCH_PKG_NAME} >> build-aux/arch/passenger-rs-bin/${ARCH_PKG_NAME}.md5sum
-#
-#      - name: Upload Arch Linux release
-#        uses: softprops/action-gh-release@v1
-#        with:
-#          token: ${{ secrets.GITHUB_TOKEN }}
-#          files: |
-#            build-aux/arch/passenger-rs-bin/${{ env.ARCH_PKG_NAME }}
-#            build-aux/arch/passenger-rs-bin/${{ env.ARCH_PKG_NAME }}.md5sum
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sudo make alien
+
+          mkdir -p ~/.cargo/release
+
+      - name: Prepare ubuntu package
+        env:
+          DESTDIR: '/tmp/passenger-rs-deb'
+          RELEASE_VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir -p ${DESTDIR}/DEBIAN
+          mkdir -p ${DESTDIR}/opt/passenger-rs/bin
+          mkdir -p ${DESTDIR}/opt/passenger-rs/etc
+          mkdir -p ${DESTDIR}/usr/lib/systemd/user
+          
+          curl -L https://github.com/grumlimited/passenger-rs/releases/download/${{ github.event.release.tag_name }}/passenger-rs-${{ github.event.release.tag_name }} -o ${DESTDIR}/opt/passenger-rs/bin/passenger-rs
+          chmod +x ${DESTDIR}/opt/passenger-rs/bin/passenger-rs
+          echo Downloaded to ${DESTDIR}/opt/passenger-rs/bin/passenger-rs
+          
+          cp config.toml ${DESTDIR}/opt/passenger-rs/etc
+          cp build-aux/arch/passenger-rs-bin/passenger-rs.sh ${DESTDIR}/opt/passenger-rs/bin
+          cp build-aux/arch/passenger-rs-bin/passenger-rs.service ${DESTDIR}/usr/lib/systemd/user
+          
+          cp build-aux/debian/control ${DESTDIR}/DEBIAN/
+          
+          echo "Version: ${RELEASE_VERSION}" >> ${DESTDIR}/DEBIAN/control
+          cp build-aux/debian/postinst ${DESTDIR}/DEBIAN/
+          chmod 775 ${DESTDIR}/DEBIAN/postinst
+          
+          cd ${DESTDIR}
+          
+          dpkg-deb --build ${DESTDIR} passenger-rs-${RELEASE_VERSION}-x86_64.deb
+
+      - name: Create arch package checksum file
+        env:
+          DESTDIR: '/tmp/passenger-rs-deb'
+          RELEASE_VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          cd ${DESTDIR}
+          md5sum passenger-rs-${RELEASE_VERSION}-x86_64.deb > passenger-rs-${RELEASE_VERSION}-x86_64.deb.md5sum
+
+      - name: Upload Ubuntu release
+        uses: softprops/action-gh-release@v2
+        env:
+          DESTDIR: '/tmp/passenger-rs-deb'
+          RELEASE_VERSION: ${{ github.event.release.tag_name }}
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            ${{ env.DESTDIR }}/${{ env.DEB_PKG_NAME }}
+            ${{ env.DESTDIR }}/${{ env.DEB_PKG_NAME }}.md5sum
+
+  arch:
+    runs-on: ubuntu-latest
+    needs: [ ci ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare arch package metadata
+        run: |
+          curl -v -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -L https://github.com/grumlimited/passenger-rs/releases/download/${{ github.event.release.tag_name }}/passenger-rs-${{ github.event.release.tag_name }} -o build-aux/arch/passenger-rs-bin/passenger-rs
+          cp config.toml build-aux/arch/passenger-rs-bin/
+          
+          cd build-aux/arch/passenger-rs-bin/
+          
+          sed -i 's/pkgver=0.1/pkgver=${{ github.event.release.tag_name }}/' PKGBUILD
+      - name: Update checksums
+        id: updpkgsums
+        uses: grumlimited/arch-pkgbuild-builder@v1.9.3
+        with:
+          debug: false
+          target: updpkgsums
+          pkgname: build-aux/arch/passenger-rs-bin/
+
+      - name: Validate PKGBUILD
+        id: validate-pkgbuild
+        uses: grumlimited/arch-pkgbuild-builder@v1.9.3
+        with:
+          debug: false
+          target: pkgbuild
+          pkgname: build-aux/arch/passenger-rs-bin/
+
+      - name: Create arch package checksum file
+        run: |
+          sudo chown -R $USER .
+          md5sum build-aux/arch/passenger-rs-bin/${ARCH_PKG_NAME} >> build-aux/arch/passenger-rs-bin/${ARCH_PKG_NAME}.md5sum
+
+      - name: Upload Arch Linux release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            build-aux/arch/passenger-rs-bin/${{ env.ARCH_PKG_NAME }}
+            build-aux/arch/passenger-rs-bin/${{ env.ARCH_PKG_NAME }}.md5sum

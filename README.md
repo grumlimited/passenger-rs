@@ -4,7 +4,27 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 
-A high-performance Rust-based proxy server that converts GitHub Copilot into an OpenAI-compatible API.
+A high-performance Rust-based proxy server that converts GitHub Copilot into OpenAI-compatible and Ollama-compatible APIs.
+
+## 💡 Use Case: Rig Integration
+
+This project enables using GitHub Copilot models with [Rig](https://github.com/0xPlaygrounds/rig) and other Ollama-compatible frameworks:
+
+```rust
+use rig::providers::ollama;
+
+let client = ollama::Client::builder()
+    .base_url("http://127.0.0.1:8081/v1")
+    .build()?;
+
+let model = client.completion_model("claude-sonnet-4.5");
+
+let agent = AgentBuilder::new(model)
+    .preamble("You're an AI assistant powered by GitHub Copilot")
+    .name("copilot-agent")
+    .max_tokens(2000)
+    .build();
+```
 
 ## 🚀 Features
 
@@ -45,6 +65,7 @@ cargo build --release
 ```
 
 This will:
+
 1. Display a GitHub device code and URL
 2. Open your browser to https://github.com/login/device
 3. After authorization, save tokens to `~/.config/passenger-rs/`
@@ -60,6 +81,7 @@ The server will start on `http://127.0.0.1:8081` by default.
 ### 4. Test the connection
 
 **OpenAI format:**
+
 ```bash
 curl http://127.0.0.1:8081/v1/chat/completions \
   -H "Content-Type: application/json" \
@@ -72,6 +94,7 @@ curl http://127.0.0.1:8081/v1/chat/completions \
 ```
 
 **Ollama format:**
+
 ```bash
 curl http://127.0.0.1:8081/v1/api/chat \
   -H "Content-Type: application/json" \
@@ -374,12 +397,19 @@ Currently, configuration is file-based. Environment variable support may be adde
 OpenAI-compatible chat completions endpoint.
 
 **Request:**
+
 ```json
 {
   "model": "gpt-4",
   "messages": [
-    {"role": "system", "content": "You are a helpful assistant."},
-    {"role": "user", "content": "Hello!"}
+    {
+      "role": "system",
+      "content": "You are a helpful assistant."
+    },
+    {
+      "role": "user",
+      "content": "Hello!"
+    }
   ],
   "temperature": 0.7,
   "max_tokens": 100
@@ -387,6 +417,7 @@ OpenAI-compatible chat completions endpoint.
 ```
 
 **Response:**
+
 ```json
 {
   "id": "chatcmpl-123",
@@ -412,6 +443,7 @@ OpenAI-compatible chat completions endpoint.
 ```
 
 **Supported Parameters:**
+
 - `model` - Model identifier (forwarded to Copilot)
 - `messages` - Array of message objects
 - `temperature` - Sampling temperature (0-2)
@@ -427,11 +459,15 @@ OpenAI-compatible chat completions endpoint.
 Ollama-compatible chat endpoint.
 
 **Request:**
+
 ```json
 {
   "model": "gpt-4",
   "messages": [
-    {"role": "user", "content": "Hello!"}
+    {
+      "role": "user",
+      "content": "Hello!"
+    }
   ],
   "temperature": 0.7,
   "max_tokens": 100
@@ -439,6 +475,7 @@ Ollama-compatible chat endpoint.
 ```
 
 **Response:**
+
 ```json
 {
   "model": "gpt-4",
@@ -455,9 +492,11 @@ Ollama-compatible chat endpoint.
 ```
 
 **Supported Parameters:**
+
 - Same as `/v1/chat/completions`
 
 **Response Fields:**
+
 - `model` - Model identifier
 - `created_at` - RFC3339 timestamp (e.g., "2023-11-07T05:31:56Z")
 - `message` - Message object with `role` and `content`
@@ -474,6 +513,7 @@ Ollama-compatible chat endpoint.
 Lists available models from GitHub Copilot catalog.
 
 **Response:**
+
 ```json
 {
   "object": "list",
@@ -623,6 +663,7 @@ cargo test -- --ignored
 #### "No authentication token found"
 
 **Solution:**
+
 ```bash
 ./passenger-rs --login
 ```
@@ -632,6 +673,7 @@ cargo test -- --ignored
 You specified a custom access token path but the file doesn't exist.
 
 **Solution:**
+
 ```bash
 # Login will create the token at the default location
 ./passenger-rs --login
@@ -645,6 +687,7 @@ You specified a custom access token path but the file doesn't exist.
 Your access token has expired or is invalid.
 
 **Solution:**
+
 ```bash
 ./passenger-rs --login
 ```
@@ -654,6 +697,7 @@ Your access token has expired or is invalid.
 Another process is using port 8081.
 
 **Solutions:**
+
 ```bash
 # Option 1: Change port in config.toml
 [server]
@@ -668,6 +712,7 @@ lsof -ti:8081 | xargs kill -9
 Server is not running.
 
 **Solution:**
+
 ```bash
 ./passenger-rs
 ```
@@ -695,6 +740,7 @@ jq '.expires_at' ~/.config/passenger-rs/token.json
 ### Token Locations
 
 By default, tokens are stored in:
+
 - **Access Token**: `~/.config/passenger-rs/access_token.json`
 - **Copilot Token**: `~/.config/passenger-rs/token.json`
 
@@ -746,12 +792,14 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 ### GPL-3.0 Summary
 
 This means you can:
+
 - ✅ Use the software for any purpose
 - ✅ Study and modify the source code
 - ✅ Share the software with others
 - ✅ Share your modifications
 
 **Important**: If you distribute modified versions, you must:
+
 - 📝 Make the source code available
 - 🔓 License it under GPL-3.0
 - 📋 Document your changes

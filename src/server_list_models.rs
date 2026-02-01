@@ -94,8 +94,6 @@ impl CoPilotListModels for Server {
         // Get a valid Copilot token
         let token = Self::get_token(state.clone()).await?;
 
-        println!("{}", state.config.github.copilot_models_url);
-
         let response = state
             .client
             .get(&state.config.github.copilot_models_url)

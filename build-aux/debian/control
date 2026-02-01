@@ -1,0 +1,6 @@
+Package: passenger-rs
+Section: development
+Priority: optional
+Architecture: amd64
+Maintainer: gr211 at users.noreply.github.com
+Description: A high-performance Rust-based proxy server that converts GitHub Copilot into an OpenAI-compatible API.
