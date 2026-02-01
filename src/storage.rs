@@ -1,7 +1,7 @@
 use crate::auth::{AccessTokenResponse, CopilotTokenResponse};
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Get the token storage directory path (~/.config/passenger-rs/)
@@ -23,41 +23,95 @@ pub fn get_token_path() -> Result<PathBuf> {
     Ok(get_storage_dir()?.join("token.json"))
 }
 
-/// Save a Copilot token to disk
-pub fn save_token(token: &CopilotTokenResponse) -> Result<()> {
-    let storage_dir = get_storage_dir()?;
+/// Save a Copilot token to disk (with optional custom path)
+pub fn save_token_to_path(token: &CopilotTokenResponse, custom_path: Option<&Path>) -> Result<()> {
+    let token_path = match custom_path {
+        Some(path) => {
+            // Verify custom path is valid
+            if let Some(parent) = path.parent() {
+                if !parent.exists() {
+                    return Err(anyhow::anyhow!(
+                        "Parent directory does not exist: {}",
+                        parent.display()
+                    ));
+                }
+            }
+            path.to_path_buf()
+        }
+        None => {
+            let storage_dir = get_storage_dir()?;
+            // Create the directory if it doesn't exist
+            fs::create_dir_all(&storage_dir).context("Failed to create storage directory")?;
+            get_token_path()?
+        }
+    };
 
-    // Create the directory if it doesn't exist
-    fs::create_dir_all(&storage_dir).context("Failed to create storage directory")?;
-
-    let token_path = get_token_path()?;
     let token_json = serde_json::to_string_pretty(token).context("Failed to serialize token")?;
-
     fs::write(&token_path, token_json).context("Failed to write token to disk")?;
 
     Ok(())
 }
 
-pub fn save_access_token(token: &AccessTokenResponse) -> Result<()> {
-    let storage_dir = get_storage_dir()?;
+/// Save a Copilot token to disk (default path)
+pub fn save_token(token: &CopilotTokenResponse) -> Result<()> {
+    save_token_to_path(token, None)
+}
 
-    // Create the directory if it doesn't exist
-    fs::create_dir_all(&storage_dir).context("Failed to create storage directory")?;
+pub fn save_access_token_to_path(
+    token: &AccessTokenResponse,
+    custom_path: Option<&Path>,
+) -> Result<()> {
+    let token_path = match custom_path {
+        Some(path) => {
+            // Verify custom path is valid
+            if let Some(parent) = path.parent() {
+                if !parent.exists() {
+                    return Err(anyhow::anyhow!(
+                        "Parent directory does not exist: {}",
+                        parent.display()
+                    ));
+                }
+            }
+            path.to_path_buf()
+        }
+        None => {
+            let storage_dir = get_storage_dir()?;
+            // Create the directory if it doesn't exist
+            fs::create_dir_all(&storage_dir).context("Failed to create storage directory")?;
+            get_access_token_path()?
+        }
+    };
 
-    let token_path = get_access_token_path()?;
     let token_json =
         serde_json::to_string_pretty(token).context("Failed to serialize access token")?;
-
     fs::write(&token_path, token_json).context("Failed to write access token to disk")?;
 
     Ok(())
 }
 
-/// Load a Copilot token from disk
-pub fn load_token() -> Result<CopilotTokenResponse> {
-    let token_path = get_token_path()?;
+pub fn save_access_token(token: &AccessTokenResponse) -> Result<()> {
+    save_access_token_to_path(token, None)
+}
 
-    let token_json = fs::read_to_string(&token_path).context("Failed to read token from disk")?;
+/// Load a Copilot token from disk (with optional custom path)
+pub fn load_token_from_path(custom_path: Option<&Path>) -> Result<CopilotTokenResponse> {
+    let token_path = match custom_path {
+        Some(path) => {
+            if !path.exists() {
+                return Err(anyhow::anyhow!(
+                    "Copilot token file does not exist: {}",
+                    path.display()
+                ));
+            }
+            path.to_path_buf()
+        }
+        None => get_token_path()?,
+    };
+
+    let token_json = fs::read_to_string(&token_path).context(format!(
+        "Failed to read token from {}",
+        token_path.display()
+    ))?;
 
     let token: CopilotTokenResponse =
         serde_json::from_str(&token_json).context("Failed to deserialize token")?;
@@ -65,8 +119,26 @@ pub fn load_token() -> Result<CopilotTokenResponse> {
     Ok(token)
 }
 
-pub fn load_access_token() -> Result<Option<AccessTokenResponse>> {
-    let token_path = get_access_token_path()?;
+/// Load a Copilot token from disk (default path)
+pub fn load_token() -> Result<CopilotTokenResponse> {
+    load_token_from_path(None)
+}
+
+pub fn load_access_token_from_path(
+    custom_path: Option<&Path>,
+) -> Result<Option<AccessTokenResponse>> {
+    let token_path = match custom_path {
+        Some(path) => {
+            if !path.exists() {
+                return Err(anyhow::anyhow!(
+                    "Access token file does not exist: {}",
+                    path.display()
+                ));
+            }
+            path.to_path_buf()
+        }
+        None => get_access_token_path()?,
+    };
 
     match fs::read_to_string(&token_path) {
         Ok(token_json) => {
@@ -78,9 +150,19 @@ pub fn load_access_token() -> Result<Option<AccessTokenResponse>> {
     }
 }
 
+pub fn load_access_token() -> Result<Option<AccessTokenResponse>> {
+    load_access_token_from_path(None)
+}
+
 /// Check if a token exists on disk
 pub fn token_exists() -> bool {
     get_token_path().map(|path| path.exists()).unwrap_or(false)
+}
+
+/// Check if a token exists at custom path
+#[allow(unused)]
+pub fn token_exists_at_path(path: &Path) -> bool {
+    path.exists()
 }
 
 /// Check if a token is expired (returns true if expired or within 60 seconds of expiring)
