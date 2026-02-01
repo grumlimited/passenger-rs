@@ -255,98 +255,37 @@ Currently, configuration is file-based. Environment variable support may be adde
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                          passenger-rs                            │
+│                          passenger-rs                           │
 ├─────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────┐  ┌─────────────┐ │
-│  │  main.rs │  │ clap.rs  │  │  config.rs   │  │  login.rs   │ │
-│  │          │  │          │  │              │  │             │ │
-│  │ App      │─►│ CLI      │  │ Config       │  │ OAuth Flow  │ │
-│  │ Entry    │  │ Parser   │  │ Loader       │  │ Handler     │ │
-│  └──────────┘  └──────────┘  └──────────────┘  └─────────────┘ │
-│                      │                                            │
-│                      ▼                                            │
+│                                                                 │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────┐  ┌─────────────┐  │
+│  │  main.rs │  │ clap.rs  │  │  config.rs   │  │  login.rs   │  │
+│  │          │  │          │  │              │  │             │  │
+│  │ App      │─►│ CLI      │  │ Config       │  │ OAuth Flow  │  │
+│  │ Entry    │  │ Parser   │  │ Loader       │  │ Handler     │  │
+│  └──────────┘  └──────────┘  └──────────────┘  └─────────────┘  │
+│                      │                                          │
+│                      ▼                                          │
 │  ┌────────────────────────────────────────────────────────────┐ │
-│  │                     server.rs                               │ │
-│  │  ┌──────────────┐  ┌───────────────┐  ┌─────────────────┐ │ │
-│  │  │ Axum Router  │  │ Chat          │  │ List Models     │ │ │
-│  │  │              │─►│ Completions   │  │ Endpoint        │ │ │
-│  │  │ HTTP Server  │  │ Endpoint      │  │                 │ │ │
-│  │  └──────────────┘  └───────────────┘  └─────────────────┘ │ │
+│  │                     server.rs                              │ │
+│  │  ┌──────────────┐  ┌───────────────┐  ┌─────────────────┐  │ │
+│  │  │ Axum Router  │  │ Chat          │  │ List Models     │  │ │
+│  │  │              │─►│ Completions   │  │ Endpoint        │  │ │
+│  │  │ HTTP Server  │  │ Endpoint      │  │                 │  │ │
+│  │  └──────────────┘  └───────────────┘  └─────────────────┘  │ │
 │  └────────────────────────────────────────────────────────────┘ │
-│                      │                                            │
-│                      ▼                                            │
-│  ┌─────────────┐  ┌──────────────┐  ┌─────────────┐            │
-│  │  auth.rs    │  │ storage.rs   │  │ token_      │            │
-│  │             │  │              │  │ manager.rs  │            │
-│  │ OAuth +     │  │ Token        │  │             │            │
-│  │ Copilot     │─►│ Persistence  │◄─│ Validation  │            │
-│  │ Token API   │  │              │  │ & Refresh   │            │
-│  └─────────────┘  └──────────────┘  └─────────────┘            │
-│                                                                   │
+│                      │                                          │
+│                      ▼                                          │
+│  ┌─────────────┐  ┌──────────────┐  ┌─────────────┐             │
+│  │  auth.rs    │  │ storage.rs   │  │ token_      │             │
+│  │             │  │              │  │ manager.rs  │             │
+│  │ OAuth +     │  │ Token        │  │             │             │
+│  │ Copilot     │─►│ Persistence  │◄─│ Validation  │             │
+│  │ Token API   │  │              │  │ & Refresh   │             │
+│  └─────────────┘  └──────────────┘  └─────────────┘             │ 
+│                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
-
-### Module Descriptions
-
-#### Core Modules
-
-- **`main.rs`** (59 lines)
-  - Application entry point
-  - Initializes logging and configuration
-  - Delegates to CLI handlers or starts server
-
-- **`clap.rs`** (157 lines)
-  - CLI argument parsing using Clap
-  - Command handlers (`--login`, `--refresh-token`)
-  - Token validation before server startup
-
-- **`server.rs`**
-  - Axum web server initialization
-  - Route definitions and middleware
-  - Shared application state management
-
-#### Authentication & Token Management
-
-- **`auth.rs`**
-  - GitHub OAuth device flow implementation
-  - Copilot token request/exchange
-  - HTTP client with proper headers (Firefox UA)
-
-- **`login.rs`**
-  - Interactive login flow with progress spinner
-  - Device code polling with exponential backoff
-  - Success/failure user feedback
-
-- **`storage.rs`**
-  - Token persistence to filesystem
-  - Support for custom token paths
-  - JSON serialization/deserialization
-  - Parent directory validation
-
-- **`token_manager.rs`**
-  - Token expiration checking
-  - Automatic token refresh logic
-  - Cache management
-
-#### API Handlers
-
-- **`server_chat_completion.rs`**
-  - OpenAI to Copilot request transformation
-  - Copilot to OpenAI response transformation
-  - Handles optional `created` field (defaults to current timestamp)
-
-- **`server_list_models.rs`**
-  - Fetches models from GitHub Copilot catalog
-  - Transforms to OpenAI models format
-  - Error handling and fallback
-
-#### Configuration
-
-- **`config.rs`**
-  - TOML configuration file parsing
-  - Structured config types
-  - Default values and validation
 
 ### Request Flow
 
@@ -376,31 +315,31 @@ Currently, configuration is file-based. Environment variable support may be adde
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Token Lifecycle                                              │
+│ Token Lifecycle                                             │
 ├─────────────────────────────────────────────────────────────┤
-│                                                               │
-│  1. Login Command                                            │
+│                                                             │
+│  1. Login Command                                           │
 │     └─► GitHub OAuth Device Flow                            │
 │         └─► Get Device Code                                 │
 │         └─► User Authorizes on GitHub                       │
 │         └─► Poll for Access Token                           │
 │         └─► Exchange for Copilot Token                      │
 │         └─► Save to ~/.config/passenger-rs/                 │
-│                                                               │
-│  2. Server Request                                           │
+│                                                             │
+│  2. Server Request                                          │
 │     └─► Load Token from Cache                               │
 │     └─► Check Expiration (60s buffer)                       │
 │     └─► If Expired:                                         │
 │         └─► Load Access Token                               │
 │         └─► Request New Copilot Token                       │
 │         └─► Save to Cache                                   │
-│     └─► Use Token for API Call                             │
-│                                                               │
-│  3. Refresh Command                                          │
+│     └─► Use Token for API Call                              │
+│                                                             │
+│  3. Refresh Command                                         │
 │     └─► Load Access Token                                   │
 │     └─► Request New Copilot Token                           │
 │     └─► Save to Cache                                       │
-│                                                               │
+│                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -582,30 +521,6 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo clippy --fix
 ```
 
-### Project Structure
-
-```
-passenger-rs/
-├── src/
-│   ├── main.rs                    # Application entry point (59 lines)
-│   ├── clap.rs                    # CLI command handlers (157 lines)
-│   ├── lib.rs                     # Library exports
-│   ├── auth.rs                    # GitHub OAuth + Copilot token API
-│   ├── config.rs                  # Configuration management
-│   ├── login.rs                   # Interactive login flow
-│   ├── storage.rs                 # Token persistence layer
-│   ├── token_manager.rs           # Token validation & refresh
-│   ├── server.rs                  # Axum server setup
-│   ├── server_chat_completion.rs  # Chat completions endpoint
-│   └── server_list_models.rs      # Models listing endpoint
-├── tests/
-│   ├── auth_tests.rs              # Authentication integration tests
-│   └── chat_completions_test.rs   # API endpoint tests
-├── config.toml                    # Runtime configuration
-├── Cargo.toml                     # Dependencies and metadata
-└── README.md                      # This file
-```
-
 ## 🧪 Testing
 
 ### Running Tests
@@ -628,38 +543,6 @@ cargo test --test '*'
 
 # Run ignored tests (require real authentication)
 cargo test -- --ignored
-```
-
-### Test Coverage
-
-The project includes:
-- **35 unit tests** covering core functionality
-- **2 integration tests** for API endpoints
-- **Mock-based tests** for external APIs using wiremock
-- **Real API tests** (marked with `#[ignore]`) for manual verification
-
-### Test Categories
-
-**Unit Tests:**
-- Config loading and validation
-- Token expiration checking
-- Storage operations
-- Request/response parsing
-- OAuth flow components
-
-**Integration Tests:**
-- Full authentication flow
-- Chat completions endpoint
-- Error handling
-- Custom token paths
-
-### Continuous Integration
-
-```bash
-# Run full CI checks
-cargo fmt --check && \
-cargo clippy --all-targets --all-features -- -D warnings && \
-cargo test
 ```
 
 ## 🐛 Troubleshooting
@@ -781,37 +664,9 @@ chmod 600 ~/.config/passenger-rs/*.json
 - **Web Framework**: Axum for fast HTTP handling
 - **HTTP Client**: Reqwest with connection pooling
 
-### Benchmarks
-
-_(Benchmarks to be added in future versions)_
-
-## 🗺️ Roadmap
-
-- [ ] Streaming support for chat completions
-- [ ] Embeddings endpoint
-- [ ] Rate limiting
-- [ ] Metrics and observability (Prometheus/OpenTelemetry)
-- [ ] Docker image
-- [ ] Multi-user support
-- [ ] Load balancing across multiple tokens
-- [ ] WebSocket support
-- [ ] Request caching
-
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
-
-### Development Setup
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Run tests (`cargo test`)
-5. Run linter (`cargo clippy`)
-6. Format code (`cargo fmt`)
-7. Commit your changes (`git commit -m 'Add amazing feature'`)
-8. Push to the branch (`git push origin feature/amazing-feature`)
-9. Open a Pull Request
 
 ## 📄 License
 
