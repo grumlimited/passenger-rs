@@ -10,7 +10,7 @@ use tracing::info;
 /// Command-line arguments for passenger-rs
 #[derive(Parser, Debug)]
 #[command(name = "passenger-rs")]
-#[command(author, version, about, long_about = None)]
+#[command(author, version = "#VERSION", about, long_about = None)]
 pub struct Args {
     /// Path to the configuration file
     #[arg(short, long, default_value = "config.toml")]
@@ -31,10 +31,6 @@ pub struct Args {
     /// Path to the Copilot token file (defaults to ~/.config/passenger-rs/token.json)
     #[arg(long)]
     pub copilot_token_path: Option<String>,
-
-    /// Display version information
-    #[arg(long)]
-    pub version: bool,
 }
 
 impl Args {
@@ -68,12 +64,6 @@ impl Args {
     /// Execute the appropriate command based on parsed arguments
     /// Returns Ok(true) if a command was executed, Ok(false) if server should start
     pub async fn execute_command(&self, config: &Config) -> Result<bool> {
-        // Handle version if requested
-        if self.version {
-            self.display_version();
-            return Ok(true);
-        }
-
         // Handle login if requested
         if self.login {
             self.handle_login(config).await?;
@@ -88,11 +78,6 @@ impl Args {
 
         // No command executed, continue to server startup
         Ok(false)
-    }
-
-    /// Display the version information
-    fn display_version(&self) {
-        println!("passenger-rs #VERSION");
     }
 
     /// Handle the --login command
@@ -189,5 +174,43 @@ impl Args {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_version_flag_displays_version() {
+        // Test that --version flag is recognized by clap
+        // This will cause the program to exit with the version message
+        // We can't easily test the output without using assert_cmd or similar
+        // but we can verify it parses correctly
+        let result = Args::try_parse_from(vec!["passenger-rs", "--version"]);
+        
+        // When --version is used, clap exits early with an error containing the version
+        assert!(result.is_err());
+        
+        let err = result.unwrap_err();
+        // Check that it's a display version error (not a parsing error)
+        assert_eq!(err.kind(), clap::error::ErrorKind::DisplayVersion);
+    }
+
+    #[test]
+    fn test_version_flag_not_set() {
+        // Test parsing command line args without --version
+        let args = Args::try_parse_from(vec!["passenger-rs"]);
+        assert!(args.is_ok());
+    }
+
+    #[test]
+    fn test_help_and_other_flags() {
+        // Test that other flags still work
+        let args = Args::try_parse_from(vec!["passenger-rs", "--login"]);
+        assert!(args.is_ok());
+        
+        let args = args.unwrap();
+        assert_eq!(args.login, true);
     }
 }
