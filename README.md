@@ -13,7 +13,7 @@ This project enables using GitHub Copilot models with [Rig](https://github.com/0
 ```rust
 use rig::providers::ollama;
 
-let client = ollama::Client::builder()
+let client: Client<OllamaExt> = ollama::Client::builder()
     .base_url("http://127.0.0.1:8081/v1")
     .build()?;
 
