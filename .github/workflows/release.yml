@@ -2,9 +2,6 @@ on:
   release:
     types:
       - created
-  pull_request:
-    branches:
-      - master
 
 name: Release
 
@@ -43,6 +40,10 @@ jobs:
           sudo apt-get install -y sudo make alien
 
           mkdir -p ~/.cargo/release
+
+      - name: Update version in source
+        run: |
+          sed -i 's/#VERSION/${{ github.event.release.tag_name }}/' src/clap.rs
 
       - name: Rust toolchain
         uses: dtolnay/rust-toolchain@stable
