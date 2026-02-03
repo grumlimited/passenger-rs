@@ -31,6 +31,10 @@ pub struct Args {
     /// Path to the Copilot token file (defaults to ~/.config/passenger-rs/token.json)
     #[arg(long)]
     pub copilot_token_path: Option<String>,
+
+    /// Display version information
+    #[arg(long)]
+    pub version: bool,
 }
 
 impl Args {
@@ -64,6 +68,12 @@ impl Args {
     /// Execute the appropriate command based on parsed arguments
     /// Returns Ok(true) if a command was executed, Ok(false) if server should start
     pub async fn execute_command(&self, config: &Config) -> Result<bool> {
+        // Handle version if requested
+        if self.version {
+            self.display_version();
+            return Ok(true);
+        }
+
         // Handle login if requested
         if self.login {
             self.handle_login(config).await?;
@@ -78,6 +88,11 @@ impl Args {
 
         // No command executed, continue to server startup
         Ok(false)
+    }
+
+    /// Display the version information
+    fn display_version(&self) {
+        println!("passenger-rs #VERSION");
     }
 
     /// Handle the --login command

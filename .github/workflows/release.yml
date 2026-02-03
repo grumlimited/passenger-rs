@@ -44,6 +44,10 @@ jobs:
 
           mkdir -p ~/.cargo/release
 
+      - name: Update version in source
+        run: |
+          sed -i 's/#VERSION/${{ github.event.release.tag_name }}/' src/clap.rs
+
       - name: Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
