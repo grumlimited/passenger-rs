@@ -41,6 +41,7 @@ let agent = AgentBuilder::new(model)
 
 - [Quick Start](#-quick-start)
 - [Installation](#-installation)
+- [Running as a System Service](#-running-as-a-system-service)
 - [Usage](#-usage)
 - [Configuration](#-configuration)
 - [Architecture](#-architecture)
@@ -123,6 +124,53 @@ The binary will be available at `target/release/passenger-rs`.
 - Rust 1.70 or later
 - Active GitHub Copilot subscription
 - Internet connection for GitHub OAuth and Copilot API
+
+## 🔧 Running as a System Service
+
+Pre-built packages for Ubuntu and Arch Linux are available on the [releases page](https://github.com/grumlimited/passenger-rs/releases).
+
+### Arch Linux Installation
+
+Install using your AUR helper:
+
+```bash
+yay -U passenger-rs-0.0.1-1-x86_64.pkg.tar.zst
+```
+
+### Ubuntu/Debian Installation
+
+```bash
+sudo dpkg -i passenger-rs-0.0.1-x86_64.deb
+```
+
+### Managing the Service
+
+The package includes a systemd user service that can be managed with standard systemctl commands:
+
+```bash
+# Start the service
+systemctl --user start passenger-rs.service
+
+# Enable auto-start on login
+systemctl --user enable passenger-rs.service
+
+# Check service status
+systemctl --user status passenger-rs.service
+```
+
+**Example output:**
+
+```
+● passenger-rs.service - passenger-rs - GitHub Copilot Proxy
+     Loaded: loaded (/usr/lib/systemd/user/passenger-rs.service; disabled; preset: enabled)
+     Active: active (running) since Tue 2026-02-03 22:44:17 CET; 1s ago
+     [...]
+     INFO passenger_rs: OpenAI API endpoint: http://127.0.0.1:8081/v1/chat/completions
+     INFO passenger_rs: Ollama API endpoint: http://127.0.0.1:8081/v1/api/chat
+     INFO passenger_rs: Models endpoint: http://127.0.0.1:8081/v1/models
+```
+
+**Note:** Before starting the service, you must authenticate with GitHub Copilot using `--login` (see [Usage](#-usage)).
 
 ## 🎯 Usage
 
