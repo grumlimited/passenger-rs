@@ -211,6 +211,6 @@ mod tests {
         assert!(args.is_ok());
 
         let args = args.unwrap();
-        assert_eq!(args.login, true);
+        assert!(args.login);
     }
 }
