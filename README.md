@@ -35,7 +35,6 @@ let agent = AgentBuilder::new(model)
 - **Custom Token Paths**: Flexible token storage locations
 - **Health Monitoring**: Built-in health check endpoint
 - **Request/Response Transformation**: Seamless conversion between OpenAI, Ollama, and Copilot formats
-- **High Performance**: Built with Rust, Axum, and Tokio for maximum efficiency
 
 ## 📋 Table of Contents
 
@@ -209,79 +208,6 @@ You can specify custom locations for token storage:
 ./passenger-rs --copilot-token-path /custom/path/copilot_token.json
 ```
 
-### Using with OpenAI SDKs
-
-#### Python
-
-```python
-from openai import OpenAI
-
-client = OpenAI(
-    base_url="http://127.0.0.1:8081/v1",
-    api_key="dummy"  # API key not required
-)
-
-response = client.chat.completions.create(
-    model="gpt-4",
-    messages=[
-        {"role": "user", "content": "Write a Python function to calculate fibonacci numbers"}
-    ]
-)
-
-print(response.choices[0].message.content)
-```
-
-#### Node.js
-
-```javascript
-import OpenAI from 'openai';
-
-const client = new OpenAI({
-  baseURL: 'http://127.0.0.1:8081/v1',
-  apiKey: 'dummy' // API key not required
-});
-
-const response = await client.chat.completions.create({
-  model: 'gpt-4',
-  messages: [{ role: 'user', content: 'Explain async/await in JavaScript' }]
-});
-
-console.log(response.choices[0].message.content);
-```
-
-#### cURL
-
-```bash
-# Chat completion (OpenAI format)
-curl http://127.0.0.1:8081/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-4",
-    "messages": [
-      {"role": "system", "content": "You are a helpful coding assistant."},
-      {"role": "user", "content": "How do I reverse a string in Rust?"}
-    ],
-    "temperature": 0.7,
-    "max_tokens": 500
-  }'
-
-# Chat completion (Ollama format)
-curl http://127.0.0.1:8081/v1/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-4",
-    "messages": [
-      {"role": "user", "content": "How do I reverse a string in Rust?"}
-    ]
-  }'
-
-# List available models
-curl http://127.0.0.1:8081/v1/models
-
-# Health check
-curl http://127.0.0.1:8081/health
-```
-
 ## ⚙️ Configuration
 
 Edit `config.toml` to customize the proxy behavior:
@@ -346,98 +272,6 @@ Currently, configuration is file-based. Environment variable support may be adde
                             └─────────────────┘
 ```
 
-### Component Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                          passenger-rs                           │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────┐  ┌─────────────┐  │
-│  │  main.rs │  │ clap.rs  │  │  config.rs   │  │  login.rs   │  │
-│  │          │  │          │  │              │  │             │  │
-│  │ App      │─►│ CLI      │  │ Config       │  │ OAuth Flow  │  │
-│  │ Entry    │  │ Parser   │  │ Loader       │  │ Handler     │  │
-│  └──────────┘  └──────────┘  └──────────────┘  └─────────────┘  │
-│                      │                                          │
-│                      ▼                                          │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │                     server.rs                              │ │
-│  │  ┌──────────────┐  ┌───────────────┐  ┌─────────────────┐  │ │
-│  │  │ Axum Router  │  │ Chat          │  │ List Models     │  │ │
-│  │  │              │─►│ Completions   │  │ Endpoint        │  │ │
-│  │  │ HTTP Server  │  │ Endpoint      │  │                 │  │ │
-│  │  └──────────────┘  └───────────────┘  └─────────────────┘  │ │
-│  └────────────────────────────────────────────────────────────┘ │
-│                      │                                          │
-│                      ▼                                          │
-│  ┌─────────────┐  ┌──────────────┐  ┌─────────────┐             │
-│  │  auth.rs    │  │ storage.rs   │  │ token_      │             │
-│  │             │  │              │  │ manager.rs  │             │
-│  │ OAuth +     │  │ Token        │  │             │             │
-│  │ Copilot     │─►│ Persistence  │◄─│ Validation  │             │
-│  │ Token API   │  │              │  │ & Refresh   │             │
-│  └─────────────┘  └──────────────┘  └─────────────┘             │ 
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Request Flow
-
-```
-1. Client Request (OpenAI Format)
-   │
-   ▼
-2. Axum Router (/v1/chat/completions)
-   │
-   ▼
-3. Token Manager (Load/Refresh Token)
-   │
-   ▼
-4. Request Transform (OpenAI → Copilot)
-   │
-   ▼
-5. GitHub Copilot API Call
-   │
-   ▼
-6. Response Transform (Copilot → OpenAI)
-   │
-   ▼
-7. Client Response (OpenAI Format)
-```
-
-### Token Flow
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Token Lifecycle                                             │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  1. Login Command                                           │
-│     └─► GitHub OAuth Device Flow                            │
-│         └─► Get Device Code                                 │
-│         └─► User Authorizes on GitHub                       │
-│         └─► Poll for Access Token                           │
-│         └─► Exchange for Copilot Token                      │
-│         └─► Save to ~/.config/passenger-rs/                 │
-│                                                             │
-│  2. Server Request                                          │
-│     └─► Load Token from Cache                               │
-│     └─► Check Expiration (60s buffer)                       │
-│     └─► If Expired:                                         │
-│         └─► Load Access Token                               │
-│         └─► Request New Copilot Token                       │
-│         └─► Save to Cache                                   │
-│     └─► Use Token for API Call                              │
-│                                                             │
-│  3. Refresh Command                                         │
-│     └─► Load Access Token                                   │
-│     └─► Request New Copilot Token                           │
-│     └─► Save to Cache                                       │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
 ## 🔌 API Endpoints
 
 ### POST /v1/chat/completions
@@ -489,17 +323,6 @@ OpenAI-compatible chat completions endpoint.
   }
 }
 ```
-
-**Supported Parameters:**
-
-- `model` - Model identifier (forwarded to Copilot)
-- `messages` - Array of message objects
-- `temperature` - Sampling temperature (0-2)
-- `max_tokens` - Maximum tokens to generate
-- `top_p` - Nucleus sampling parameter
-- `n` - Number of completions
-- `stop` - Stop sequences
-
 **Note:** Streaming is not yet supported. The `stream` parameter is ignored.
 
 ### POST /v1/api/chat
@@ -539,21 +362,6 @@ Ollama-compatible chat endpoint.
 }
 ```
 
-**Supported Parameters:**
-
-- Same as `/v1/chat/completions`
-
-**Response Fields:**
-
-- `model` - Model identifier
-- `created_at` - RFC3339 timestamp (e.g., "2023-11-07T05:31:56Z")
-- `message` - Message object with `role` and `content`
-- `done` - Boolean indicating completion
-- `done_reason` - Reason for completion (e.g., "stop", "length")
-- `prompt_eval_count` - Number of tokens in prompt (optional)
-- `eval_count` - Number of tokens generated (optional)
-- `total_duration`, `load_duration`, `prompt_eval_duration`, `eval_duration` - Timing metrics (optional)
-
 **Note:** This endpoint accepts OpenAI-format requests but returns Ollama-format responses for compatibility with Ollama clients.
 
 ### GET /v1/models
@@ -575,12 +383,6 @@ Lists available models from GitHub Copilot catalog.
   ]
 }
 ```
-
-### GET /health
-
-Health check endpoint for monitoring.
-
-**Response:** `"OK"` (HTTP 200)
 
 ## 🖥️ CLI Reference
 
@@ -615,27 +417,6 @@ Options:
 
   -V, --version
           Print version information
-```
-
-### Command Examples
-
-```bash
-# Standard login
-./passenger-rs --login
-
-# Login with custom token locations
-./passenger-rs --login \
-  --access-token-path /secure/vault/access.json \
-  --copilot-token-path /secure/vault/copilot.json
-
-# Refresh token manually
-./passenger-rs --refresh-token
-
-# Run server with custom config
-./passenger-rs --config production.toml
-
-# Run server with custom token path
-./passenger-rs --copilot-token-path /secure/vault/copilot.json
 ```
 
 ## 🛠️ Development
