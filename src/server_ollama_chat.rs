@@ -81,12 +81,17 @@ impl OllamaChatEndpoint for Server {
                     role: m.role.clone(),
                     content: m.content.clone(),
                     padding: None,
+                    tool_calls: m.tool_calls.clone(),
+                    tool_call_id: m.tool_call_id.clone(),
+                    name: m.name.clone(),
                 })
                 .collect(),
             model: request.model.clone(),
             temperature: request.temperature,
             max_tokens: request.max_tokens,
             stream: Some(request.stream),
+            tools: request.tools,
+            tool_choice: request.tool_choice,
         };
 
         // Forward request to Copilot API
@@ -174,7 +179,7 @@ fn transform_to_ollama_response(
         created_at,
         message: OllamaMessage {
             role: choice.message.role.clone(),
-            content: choice.message.content.clone(),
+            content: choice.message.content.clone().unwrap_or_default(),
             thinking: None,
             tool_calls: None,
             images: None,
@@ -206,8 +211,11 @@ mod tests {
                 index: Some(0),
                 message: CopilotMessage {
                     role: "assistant".to_string(),
-                    content: "Hello, World!".to_string(),
+                    content: Some("Hello, World!".to_string()),
                     padding: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                    name: None,
                 },
                 finish_reason: "stop".to_string(),
             }],
@@ -242,8 +250,11 @@ mod tests {
                 index: Some(0),
                 message: CopilotMessage {
                     role: "assistant".to_string(),
-                    content: "Test".to_string(),
+                    content: Some("Test".to_string()),
                     padding: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                    name: None,
                 },
                 finish_reason: "length".to_string(),
             }],

@@ -5,6 +5,55 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::log::{error, info};
 
+/// Tool definition for function calling
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Tool {
+    #[serde(rename = "type")]
+    pub tool_type: String,
+    pub function: FunctionDefinition,
+}
+
+/// Function definition with JSON schema for parameters
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FunctionDefinition {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub parameters: serde_json::Value,
+}
+
+/// Tool choice specification
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum ToolChoice {
+    String(String), // "auto", "none", "required"
+    Specific {
+        #[serde(rename = "type")]
+        tool_type: String,
+        function: ToolChoiceFunction,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ToolChoiceFunction {
+    pub name: String,
+}
+
+/// Tool call made by the assistant
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ToolCall {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub tool_type: String,
+    pub function: FunctionCall,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FunctionCall {
+    pub name: String,
+    pub arguments: String,
+}
+
 /// OpenAI-compatible chat completion request
 #[derive(Debug, Deserialize)]
 pub struct OpenAIChatRequest {
@@ -16,6 +65,10 @@ pub struct OpenAIChatRequest {
     pub temperature: Option<f32>,
     #[serde(default)]
     pub max_tokens: Option<u32>,
+    #[serde(default)]
+    pub tools: Option<Vec<Tool>>,
+    #[serde(default)]
+    pub tool_choice: Option<ToolChoice>,
 }
 
 /// OpenAI-compatible chat completion response
@@ -32,9 +85,16 @@ pub struct OpenAIChatResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CopilotMessage {
     pub role: String,
-    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
     #[serde(default)]
     pub padding: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 /// Copilot chat completion request
@@ -48,6 +108,10 @@ pub struct CopilotChatRequest {
     pub max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<Tool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<ToolChoice>,
 }
 
 /// Copilot chat completion response
@@ -83,7 +147,14 @@ pub struct CopilotUsage {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct OpenAIMessage {
     pub role: String,
-    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -129,12 +200,17 @@ impl CoPilotChatCompletions for Server {
                     role: m.role.clone(),
                     content: m.content.clone(),
                     padding: None,
+                    tool_calls: m.tool_calls.clone(),
+                    tool_call_id: m.tool_call_id.clone(),
+                    name: m.name.clone(),
                 })
                 .collect(),
             model: request.model,
             temperature: request.temperature,
             max_tokens: request.max_tokens,
             stream: Some(request.stream),
+            tools: request.tools,
+            tool_choice: request.tool_choice,
         };
 
         // Forward request to Copilot API
@@ -201,6 +277,9 @@ impl CoPilotChatCompletions for Server {
                     message: OpenAIMessage {
                         role: c.message.role,
                         content: c.message.content,
+                        tool_calls: c.message.tool_calls,
+                        tool_call_id: c.message.tool_call_id,
+                        name: c.message.name,
                     },
                     finish_reason: c.finish_reason,
                 })
@@ -245,7 +324,10 @@ mod tests {
         assert_eq!(response.model, "gpt-4.1-2025-04-14");
         assert!(response.created.is_none(), "Expected created to be None");
         assert_eq!(response.choices.len(), 1);
-        assert_eq!(response.choices[0].message.content, "Hello, World!");
+        assert_eq!(
+            response.choices[0].message.content,
+            Some("Hello, World!".to_string())
+        );
     }
 
     #[test]
@@ -336,8 +418,11 @@ mod tests {
                     index: None, // No index provided
                     message: CopilotMessage {
                         role: "assistant".to_string(),
-                        content: "First response".to_string(),
+                        content: Some("First response".to_string()),
                         padding: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                        name: None,
                     },
                     finish_reason: "stop".to_string(),
                 },
@@ -345,8 +430,11 @@ mod tests {
                     index: Some(5), // Explicit index provided
                     message: CopilotMessage {
                         role: "assistant".to_string(),
-                        content: "Second response".to_string(),
+                        content: Some("Second response".to_string()),
                         padding: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                        name: None,
                     },
                     finish_reason: "stop".to_string(),
                 },
@@ -354,8 +442,11 @@ mod tests {
                     index: None, // No index provided
                     message: CopilotMessage {
                         role: "assistant".to_string(),
-                        content: "Third response".to_string(),
+                        content: Some("Third response".to_string()),
                         padding: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                        name: None,
                     },
                     finish_reason: "stop".to_string(),
                 },
@@ -383,6 +474,9 @@ mod tests {
                     message: OpenAIMessage {
                         role: c.message.role,
                         content: c.message.content,
+                        tool_calls: c.message.tool_calls,
+                        tool_call_id: c.message.tool_call_id,
+                        name: c.message.name,
                     },
                     finish_reason: c.finish_reason,
                 })
@@ -407,6 +501,103 @@ mod tests {
         assert_eq!(
             openai_response.choices[2].index, 2,
             "Third choice should use position 2"
+        );
+    }
+
+    #[test]
+    fn test_openai_request_with_tools() {
+        // Test that OpenAI requests with tools can be deserialized
+        let json = r#"{
+            "model": "gpt-4",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "What's the weather in San Francisco?"
+                }
+            ],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "description": "Get current weather",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "location": {
+                                    "type": "string",
+                                    "description": "City name"
+                                }
+                            },
+                            "required": ["location"]
+                        }
+                    }
+                }
+            ],
+            "tool_choice": "auto"
+        }"#;
+
+        let result = serde_json::from_str::<OpenAIChatRequest>(json);
+        assert!(
+            result.is_ok(),
+            "Failed to parse request with tools: {:?}",
+            result.err()
+        );
+
+        let request = result.unwrap();
+        assert_eq!(request.model, "gpt-4");
+        assert!(request.tools.is_some(), "Tools should be present");
+        assert_eq!(request.tools.unwrap().len(), 1, "Should have one tool");
+        assert!(request.tool_choice.is_some(), "Tool choice should be present");
+    }
+
+    #[test]
+    fn test_copilot_response_with_tool_calls() {
+        // Test parsing a Copilot response that includes tool calls
+        let json = r#"{
+            "id": "test-id",
+            "created": 1234567890,
+            "model": "gpt-4",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": "{\"location\": \"San Francisco\"}"
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "total_tokens": 15
+            }
+        }"#;
+
+        let result = serde_json::from_str::<CopilotChatResponse>(json);
+        assert!(
+            result.is_ok(),
+            "Failed to parse response with tool calls: {:?}",
+            result.err()
+        );
+
+        let response = result.unwrap();
+        assert_eq!(response.choices.len(), 1);
+        assert!(
+            response.choices[0].message.tool_calls.is_some(),
+            "Tool calls should be present"
+        );
+        assert_eq!(
+            response.choices[0].message.tool_calls.as_ref().unwrap().len(),
+            1,
+            "Should have one tool call"
         );
     }
 }
