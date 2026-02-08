@@ -5,6 +5,7 @@ use crate::server_chat_completion::{
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tracing::debug;
 use tracing::log::{error, info};
 
 /// Ollama-compatible chat response
@@ -70,7 +71,6 @@ impl OllamaChatEndpoint for Server {
     ) -> Result<Json<OllamaChatResponse>, AppError> {
         let mut request = request.0;
         request.normalize_tools();
-        info!("Received Ollama chat request for model: {}", request.model);
 
         // Get a valid Copilot token
         let token = Self::get_token(state.clone()).await?;
@@ -97,11 +97,10 @@ impl OllamaChatEndpoint for Server {
             tool_choice: request.tool_choice,
         };
 
-        println!(
-            "copilot_request {:?}",
-            serde_json::to_string(&copilot_request).unwrap()
+        debug!(
+            "copilot_request:\n{}",
+            serde_json::to_string_pretty(&copilot_request).unwrap()
         );
-        println!("====================");
 
         // Forward request to Copilot API
         let copilot_url = format!("{}/chat/completions", state.config.copilot.api_base_url);
@@ -136,34 +135,22 @@ impl OllamaChatEndpoint for Server {
             )));
         }
 
-        let text = response.text().await.unwrap();
-        println!("copilot_response text");
-        println!("{:?}", text);
-        println!("====================");
+        let copilot_response: CopilotChatResponse = response.json().await.map_err(|e| {
+            error!("Failed to parse Copilot response: {}", e);
+            AppError::InternalServerError(format!("Failed to parse Copilot response: {}", e))
+        })?;
 
-        let copilot_response: CopilotChatResponse = serde_json::from_str(&text).unwrap();
-
-        println!("copilot_response");
-        println!("{:?}", serde_json::to_string(&copilot_response).unwrap());
-        println!("====================");
-
-        // let copilot_response: CopilotChatResponse = response.json().await.map_err(|e| {
-        //     error!("Failed to parse Copilot response: {}", e);
-        //     AppError::InternalServerError(format!("Failed to parse Copilot response: {}", e))
-        // })?;
+        debug!(
+            "copilot_response:\n{}",
+            serde_json::to_string_pretty(&copilot_response).unwrap()
+        );
 
         // Transform Copilot response to Ollama format
         let ollama_response =
             transform_to_ollama_response(&copilot_request, copilot_response, request.model)?;
 
-        println!("ollama_response");
-        println!("{:?}", serde_json::to_string(&ollama_response).unwrap());
-        println!("====================");
-
         info!("Successfully processed Ollama chat request");
 
-        println!("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
-        println!();
         Ok(Json(ollama_response))
     }
 }
@@ -174,7 +161,6 @@ fn transform_to_ollama_response(
     copilot: CopilotChatResponse,
     model: String,
 ) -> Result<OllamaChatResponse, AppError> {
-    // Get the first choice (Ollama format returns a single message)
     let choice = copilot.choices.first().ok_or_else(|| {
         AppError::InternalServerError("No choices in Copilot response".to_string())
     })?;
@@ -382,7 +368,8 @@ mod tests {
             usage: None,
         };
 
-        let result = transform_to_ollama_response(&copilot_request, copilot_response, "gpt-4".to_string());
+        let result =
+            transform_to_ollama_response(&copilot_request, copilot_response, "gpt-4".to_string());
         assert!(result.is_ok());
 
         let ollama = result.unwrap();
