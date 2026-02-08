@@ -548,7 +548,7 @@ mod tests {
                 .into_iter()
                 .enumerate()
                 .map(|(i, c)| OpenAIChoice {
-                    index: i as u32,
+                    index: c.index.unwrap_or(i as u32),
                     message: OpenAIMessage {
                         role: c.message.role,
                         content: c.message.content,

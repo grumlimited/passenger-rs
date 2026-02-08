@@ -7,10 +7,11 @@
     "thinking": "<string>",
     "tool_calls": [
       {
+        "id": "call_123",
         "function": {
           "name": "<string>",
           "description": "<string>",
-          "arguments": {}
+          "arguments": "{}"
         }
       }
     ],
