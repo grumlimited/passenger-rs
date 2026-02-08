@@ -76,8 +76,7 @@ impl OllamaChatEndpoint for Server {
         //     serde_json::to_string_pretty(&request).unwrap()
         // );
 
-        request.normalize_tools();
-        request.convert_tool_messages_for_copilot();
+        request.prepare_for_copilot();
 
         // Get a valid Copilot token
         let token = Self::get_token(state.clone()).await?;
@@ -258,10 +257,19 @@ mod tests {
             .find(|m| m.role == "tool" && m.tool_call_id.is_none())
             .is_some());
 
-        json.normalize_tools();
-        // json.convert_tool_messages_for_copilot();
+        json.prepare_for_copilot();
 
-        println!("{}", serde_json::to_string_pretty(&json).unwrap());
+        assert!(json
+            .messages
+            .iter()
+            .find(|m| m.role == "tool" && m.tool_call_id.is_none())
+            .is_none());
+
+        assert!(json
+            .messages
+            .iter()
+            .find(|m| m.role == "tool" && m.name.is_none())
+            .is_none());
     }
 
     #[test]
@@ -275,9 +283,7 @@ mod tests {
             .find(|m| m.role == "tool" && m.tool_call_id.is_none())
             .is_some());
 
-        json.normalize_tools();
-
-        println!("{}", serde_json::to_string_pretty(&json).unwrap());
+        json.prepare_for_copilot();
 
         assert!(json
             .messages

@@ -87,7 +87,7 @@ impl OpenAIChatRequest {
     /// Checks if all tool-related messages already have IDs present.
     /// Returns true if IDs are present, meaning the initial payload included them
     /// and we should not modify them. Returns false if any IDs are missing,
-    /// indicating we need to generate them via normalize_tools().
+    /// indicating we need to generate them via ensure_tool_ids().
     pub fn ids_present(&self) -> bool {
         let all_tool_messages_have_ids = self
             .messages
@@ -106,12 +106,26 @@ impl OpenAIChatRequest {
         all_tool_messages_have_ids && all_tool_calls_have_ids
     }
 
+    /// Applies all necessary transformations for GitHub Copilot compatibility.
+    ///
+    /// This is the main entry point for preparing requests before sending to Copilot.
+    /// It orchestrates two critical transformations:
+    /// 1. Ensures tool IDs are present (required by OpenAI spec)
+    /// 2. Duplicates tool messages as user messages (works around Copilot quirks)
+    ///
+    /// Call this method once on any request that contains tools before forwarding to Copilot.
+    pub fn prepare_for_copilot(&mut self) {
+        self.ensure_tool_ids();
+        self.duplicate_tool_messages_as_user();
+    }
+
     /// Generates and assigns IDs to tool-related messages when they are missing.
     /// This method only modifies the request if ids_present() returns false.
     ///
     /// It assigns:
     /// - tool_call_id to messages with role "tool" (indexed sequentially)
     /// - id to tool_calls in assistant messages (indexed sequentially)
+    /// - name to tool messages (extracted from assistant's tool_calls)
     ///
     /// If the original request already had IDs, this method does nothing,
     /// preserving the client-provided identifiers.
@@ -126,7 +140,7 @@ impl OpenAIChatRequest {
     /// When using frameworks like [Rig](https://github.com/0xPlaygrounds/rig) with its Ollama provider,
     /// the generated OpenAIChatRequest structs won't have these IDs. This proxy bridges
     /// that gap by auto-generating them before forwarding to GitHub Copilot.
-    pub fn normalize_tools(&mut self) {
+    fn ensure_tool_ids(&mut self) {
         if !self.ids_present() {
             let assistant_tool_name = self
                 .messages
@@ -200,7 +214,7 @@ impl OpenAIChatRequest {
     ///
     /// This approach trades token consumption for reliability, ensuring Copilot both
     /// validates the tool calling chain AND consistently processes the results.
-    pub fn convert_tool_messages_for_copilot(&mut self) {
+    fn duplicate_tool_messages_as_user(&mut self) {
         let mut user_duplicates = Vec::new();
         let mut last_tool_index = None;
         
@@ -352,7 +366,7 @@ impl CoPilotChatCompletions for Server {
         request: Json<OpenAIChatRequest>,
     ) -> Result<Json<OpenAIChatResponse>, AppError> {
         let mut request = request.0;
-        request.normalize_tools();
+        request.prepare_for_copilot();
         info!(
             "Received chat completion request for model: {}",
             request.model
@@ -778,7 +792,7 @@ mod tests {
     }
 
     #[test]
-    fn test_convert_tool_messages_for_copilot() {
+    fn test_prepare_for_copilot_duplicates_tool_messages() {
         // Test that tool messages are duplicated as user messages appended after last tool
         let mut request = OpenAIChatRequest {
             model: "gpt-4".to_string(),
@@ -819,7 +833,7 @@ mod tests {
             tool_choice: None,
         };
 
-        request.convert_tool_messages_for_copilot();
+        request.prepare_for_copilot();
 
         // Should now have 4 messages: original 3 + 1 duplicate user message
         assert_eq!(request.messages.len(), 4);
@@ -844,7 +858,7 @@ mod tests {
     }
 
     #[test]
-    fn test_convert_multiple_tool_messages() {
+    fn test_prepare_for_copilot_handles_multiple_tools() {
         // Test duplication of multiple tool messages - all user duplicates appended after last tool
         let mut request = OpenAIChatRequest {
             model: "gpt-4".to_string(),
@@ -895,7 +909,7 @@ mod tests {
             tool_choice: None,
         };
 
-        request.convert_tool_messages_for_copilot();
+        request.prepare_for_copilot();
 
         // Should have 5 messages: 1 assistant + 2 tool + 2 user duplicates
         assert_eq!(request.messages.len(), 5);
@@ -924,7 +938,7 @@ mod tests {
     }
 
     #[test]
-    fn test_convert_tool_messages_preserves_non_tool_messages() {
+    fn test_prepare_for_copilot_preserves_non_tool_messages() {
         // Test that non-tool messages are not affected
         let mut request = OpenAIChatRequest {
             model: "gpt-4".to_string(),
@@ -951,7 +965,7 @@ mod tests {
             tool_choice: None,
         };
 
-        request.convert_tool_messages_for_copilot();
+        request.prepare_for_copilot();
 
         // Should still have 2 messages, no duplicates
         assert_eq!(request.messages.len(), 2);
@@ -960,7 +974,7 @@ mod tests {
     }
 
     #[test]
-    fn test_convert_with_missing_fields() {
+    fn test_prepare_for_copilot_handles_missing_fields() {
         // Test duplication when tool message has missing optional fields
         let mut request = OpenAIChatRequest {
             model: "gpt-4".to_string(),
@@ -978,7 +992,7 @@ mod tests {
             tool_choice: None,
         };
 
-        request.convert_tool_messages_for_copilot();
+        request.prepare_for_copilot();
 
         // Should have 2 messages now
         assert_eq!(request.messages.len(), 2);
