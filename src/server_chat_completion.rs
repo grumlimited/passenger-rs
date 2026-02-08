@@ -81,7 +81,7 @@ impl OpenAIChatRequest {
     }
 
     fn has_valid_id(id: &Option<String>) -> bool {
-        id.as_ref().map_or(false, |s| !s.is_empty())
+        id.as_ref().is_some_and(|s| !s.is_empty())
     }
 
     /// Checks if all tool-related messages already have IDs present.

@@ -249,53 +249,41 @@ mod tests {
     #[test]
     fn test_openai_chat_request_multiple_tools_normalize() {
         let json = include_str!("resources/rig_ollama_request_multiple_tools.json");
-        let mut json: OpenAIChatRequest = serde_json::from_str(&json).unwrap();
+        let mut json: OpenAIChatRequest = serde_json::from_str(json).unwrap();
 
         assert!(json
             .messages
             .iter()
-            .find(|m| m.role == "tool" && m.tool_call_id.is_none())
-            .is_some());
+            .filter(|m| m.role == "tool")
+            .all(|m| m.tool_call_id.is_none()));
 
         json.prepare_for_copilot();
 
         assert!(json
             .messages
             .iter()
-            .find(|m| m.role == "tool" && m.tool_call_id.is_none())
-            .is_none());
-
-        assert!(json
-            .messages
-            .iter()
-            .find(|m| m.role == "tool" && m.name.is_none())
-            .is_none());
+            .filter(|m| m.role == "tool")
+            .all(|m| m.name.is_some() && m.tool_call_id.is_some()));
     }
 
     #[test]
     fn test_openai_chat_request_normalize() {
         let json = include_str!("resources/rig_ollama_request.json");
-        let mut json: OpenAIChatRequest = serde_json::from_str(&json).unwrap();
+        let mut json: OpenAIChatRequest = serde_json::from_str(json).unwrap();
 
         assert!(json
             .messages
             .iter()
-            .find(|m| m.role == "tool" && m.tool_call_id.is_none())
-            .is_some());
+            .filter(|m| m.role == "tool")
+            .all(|m| m.tool_call_id.is_none()));
 
         json.prepare_for_copilot();
 
         assert!(json
             .messages
             .iter()
-            .find(|m| m.role == "tool" && m.tool_call_id.is_none())
-            .is_none());
-
-        assert!(json
-            .messages
-            .iter()
-            .find(|m| m.role == "tool" && m.name.is_none())
-            .is_none());
+            .filter(|m| m.role == "tool")
+            .all(|m| m.name.is_some() && m.tool_call_id.is_some()));
     }
 
     #[test]
