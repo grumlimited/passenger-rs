@@ -72,50 +72,55 @@ pub struct OpenAIChatRequest {
 }
 
 impl OpenAIChatRequest {
+    fn assistant_role() -> String {
+        "assistant".to_string()
+    }
+
+    fn tool_role() -> String {
+        "tool".to_string()
+    }
+
     pub fn ids_present(&self) -> bool {
-        let all_tool_messages_have_ids = self
-            .messages
-            .iter()
-            .filter(|t| t.role == "tool")
-            .map(|m|
-                {
-                    m.tool_call_id.is_some() && m.tool_call_id.clone().unwrap().len() > 0 })
-            .fold(true, |a, b| a && b);
+        let all_tool_messages_have_ids =
+            self.messages
+                .iter()
+                .filter(|t| t.role == "tool")
+                .all(|message| {
+                    message.tool_call_id.is_some()
+                        && !message.tool_call_id.clone().unwrap().is_empty()
+                });
 
         let all_tool_calls_have_ids = self
             .messages
             .iter()
-            .filter(|t| t.role == "assistant")
-            .filter(|t| t.tool_calls.is_some())
-            .map(|t| t.tool_calls.clone().unwrap())
-            .flatten()
+            .filter(|message| message.role == OpenAIChatRequest::assistant_role())
+            .filter(|message| message.tool_calls.is_some())
+            .flat_map(|message| message.tool_calls.clone().unwrap())
             .collect::<Vec<ToolCall>>()
             .iter()
-            .map(|tc| tc.id.is_some() && tc.id.clone().unwrap().len() > 0)
-            .fold(true, |a, b| a && b);
+            .all(|tool_call| tool_call.id.is_some() && !tool_call.id.clone().unwrap().is_empty());
 
         all_tool_messages_have_ids && all_tool_calls_have_ids
     }
 
     pub fn normalize_tools(&mut self) {
-        if self.ids_present() {
-            ()
-        } else {
+        if !self.ids_present() {
             self.messages
                 .iter_mut()
-                .filter(|t| t.role == "tool")
+                .filter(|message| message.role == OpenAIChatRequest::tool_role())
                 .enumerate()
-                .for_each(|(i, t)| t.tool_call_id = Some(format!("{}", i)));
+                .for_each(|(idx, message)| message.tool_call_id = Some(format!("{}", idx)));
 
             self.messages
                 .iter_mut()
-                .filter(|t| t.role == "assistant")
-                .filter(|t| t.tool_calls.is_some())
-                .for_each(|t| match t.tool_calls {
-                    Some(ref mut tc) => tc.iter_mut().enumerate().for_each(|(i, v)| {
-                        v.id = Some(format!("{}", i));
-                    }),
-                    _ => {}
+                .filter(|message| message.role == OpenAIChatRequest::assistant_role())
+                .filter(|message| message.tool_calls.is_some())
+                .for_each(|message| {
+                    if let Some(ref mut tc) = message.tool_calls {
+                        tc.iter_mut().enumerate().for_each(|(idx, tool_call)| {
+                            tool_call.id = Some(format!("{}", idx));
+                        })
+                    }
                 });
         }
     }
@@ -231,9 +236,10 @@ pub(crate) trait CoPilotChatCompletions {
 impl CoPilotChatCompletions for Server {
     async fn chat_completions(
         State(state): State<Arc<AppState>>,
-        Json(request): Json<OpenAIChatRequest>,
+        request: Json<OpenAIChatRequest>,
     ) -> Result<Json<OpenAIChatResponse>, AppError> {
-        println!("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF");
+        let mut request = request.0;
+        request.normalize_tools();
         info!(
             "Received chat completion request for model: {}",
             request.model

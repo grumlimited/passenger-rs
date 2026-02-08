@@ -59,27 +59,17 @@ pub struct OllamaFunction {
 pub(crate) trait OllamaChatEndpoint {
     async fn ollama_chat(
         state: State<Arc<AppState>>,
-        abc: String,
+        request: Json<OpenAIChatRequest>,
     ) -> Result<Json<OllamaChatResponse>, AppError>;
 }
 
 impl OllamaChatEndpoint for Server {
     async fn ollama_chat(
         State(state): State<Arc<AppState>>,
-        abc: String,
+        request: Json<OpenAIChatRequest>,
     ) -> Result<Json<OllamaChatResponse>, AppError> {
-        println!("=======================================");
-        println!("=======================================");
-
-        let request = serde_json::from_str(&abc);
-        println!("abc : {:?}", abc);
-        println!("*****");
-        println!("*****");
-        let mut request: OpenAIChatRequest = request.unwrap();
-        println!("request : {:?}", serde_json::to_string(&request).unwrap());
+        let mut request = request.0;
         request.normalize_tools();
-        println!("request2 : {:?}", serde_json::to_string(&request).unwrap());
-
         info!("Received Ollama chat request for model: {}", request.model);
 
         // Get a valid Copilot token
@@ -349,6 +339,30 @@ mod tests {
 
     #[test]
     fn test_transform_without_usage() {
+        let copilot_request = CopilotChatRequest {
+            messages: vec![CopilotMessage {
+                role: "tool".to_string(),
+                content: None,
+                padding: None,
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            }],
+            model: "model".to_string(),
+            temperature: None,
+            max_tokens: None,
+            stream: None,
+            tools: Some(vec![Tool {
+                tool_type: "function".to_string(),
+                function: FunctionDefinition {
+                    name: "function_name".to_string(),
+                    description: Some("Description".to_string()),
+                    parameters: serde_json::Value::Object(serde_json::Map::new()),
+                },
+            }]),
+            tool_choice: None,
+        };
+
         let copilot_response = CopilotChatResponse {
             id: "test-id".to_string(),
             created: None,
@@ -368,13 +382,13 @@ mod tests {
             usage: None,
         };
 
-        // let result = transform_to_ollama_response(copilot_response, "gpt-4".to_string());
-        // assert!(result.is_ok());
+        let result = transform_to_ollama_response(&copilot_request, copilot_response, "gpt-4".to_string());
+        assert!(result.is_ok());
 
-        // let ollama = result.unwrap();
-        // assert_eq!(ollama.done_reason, Some("length".to_string()));
-        // assert_eq!(ollama.prompt_eval_count, None);
-        // assert_eq!(ollama.eval_count, None);
+        let ollama = result.unwrap();
+        assert_eq!(ollama.done_reason, Some("length".to_string()));
+        assert_eq!(ollama.prompt_eval_count, None);
+        assert_eq!(ollama.eval_count, None);
     }
 
     #[test]
