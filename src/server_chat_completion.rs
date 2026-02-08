@@ -48,26 +48,7 @@ impl CoPilotChatCompletions for Server {
         let token = Self::get_token(state.clone()).await?;
 
         // Transform OpenAI request to Copilot format
-        let copilot_request = CopilotChatRequest {
-            messages: request
-                .messages
-                .iter()
-                .map(|m| CopilotMessage {
-                    role: m.role.clone(),
-                    content: m.content.clone(),
-                    padding: None,
-                    tool_calls: m.tool_calls.clone(),
-                    tool_call_id: m.tool_call_id.clone(),
-                    name: m.name.clone(),
-                })
-                .collect(),
-            model: request.model,
-            temperature: request.temperature,
-            max_tokens: request.max_tokens,
-            stream: Some(request.stream),
-            tools: request.tools,
-            tool_choice: request.tool_choice,
-        };
+        let copilot_request: CopilotChatRequest = request.into();
 
         // Forward request to Copilot API
         let copilot_url = format!("{}/chat/completions", state.config.copilot.api_base_url);
