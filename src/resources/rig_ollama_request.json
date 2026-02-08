@@ -1,0 +1,48 @@
+{
+  "model": "claude-sonnet-4.5",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a financial assistant"
+    },
+    {
+      "role": "user",
+      "content": "Return the ticker symbols from the results returned by calling the tool get_portfolio_tickers (it is available to you). Call the damn tool!!!"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": null,
+          "type": "function",
+          "function": {
+            "name": "get_portfolio_tickers",
+            "arguments": "{}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "content": "[XXX]"
+    }
+  ],
+  "stream": false,
+  "temperature": null,
+  "max_tokens": null,
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_portfolio_tickers",
+        "description": "Returns all ticker symbols (identifiers) in portfolio. Returns a list of ticker symbols in a json array of strings format.",
+        "parameters": {
+          "properties": {},
+          "type": "object"
+        }
+      }
+    }
+  ],
+  "tool_choice": null
+}
