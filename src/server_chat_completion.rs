@@ -80,40 +80,63 @@ impl OpenAIChatRequest {
         "tool".to_string()
     }
 
+    fn has_valid_id(id: &Option<String>) -> bool {
+        id.as_ref().map_or(false, |s| !s.is_empty())
+    }
+
+    /// Checks if all tool-related messages already have IDs present.
+    /// Returns true if IDs are present, meaning the initial payload included them
+    /// and we should not modify them. Returns false if any IDs are missing,
+    /// indicating we need to generate them via normalize_tools().
     pub fn ids_present(&self) -> bool {
-        let all_tool_messages_have_ids =
-            self.messages
-                .iter()
-                .filter(|t| t.role == "tool")
-                .all(|message| {
-                    message.tool_call_id.is_some()
-                        && !message.tool_call_id.clone().unwrap().is_empty()
-                });
+        let all_tool_messages_have_ids = self
+            .messages
+            .iter()
+            .filter(|t| t.role == Self::tool_role())
+            .all(|msg| Self::has_valid_id(&msg.tool_call_id));
 
         let all_tool_calls_have_ids = self
             .messages
             .iter()
-            .filter(|message| message.role == OpenAIChatRequest::assistant_role())
-            .filter(|message| message.tool_calls.is_some())
-            .flat_map(|message| message.tool_calls.clone().unwrap())
-            .collect::<Vec<ToolCall>>()
-            .iter()
-            .all(|tool_call| tool_call.id.is_some() && !tool_call.id.clone().unwrap().is_empty());
+            .filter(|msg| msg.role == Self::assistant_role())
+            .filter_map(|msg| msg.tool_calls.as_ref())
+            .flat_map(|calls| calls.iter())
+            .all(|call| Self::has_valid_id(&call.id));
 
         all_tool_messages_have_ids && all_tool_calls_have_ids
     }
 
+    /// Generates and assigns IDs to tool-related messages when they are missing.
+    /// This method only modifies the request if ids_present() returns false.
+    /// 
+    /// It assigns:
+    /// - tool_call_id to messages with role "tool" (indexed sequentially)
+    /// - id to tool_calls in assistant messages (indexed sequentially)
+    /// 
+    /// If the original request already had IDs, this method does nothing,
+    /// preserving the client-provided identifiers.
+    /// 
+    /// # Why This Is Necessary
+    /// 
+    /// This normalization is required because different API providers have different requirements:
+    /// - **Ollama API**: Does not include tool_call_id or id fields in its specification
+    /// - **OpenAI API**: Requires these IDs for proper tool calling workflow
+    /// - **GitHub Copilot**: Follows OpenAI's standard and expects IDs to be present
+    /// 
+    /// When using frameworks like [Rig](https://github.com/0xPlaygrounds/rig) with its Ollama provider,
+    /// the generated OpenAIChatRequest structs won't have these IDs. This proxy bridges
+    /// that gap by auto-generating them before forwarding to GitHub Copilot.
     pub fn normalize_tools(&mut self) {
         if !self.ids_present() {
             self.messages
                 .iter_mut()
-                .filter(|message| message.role == OpenAIChatRequest::tool_role())
+                .filter(|message| message.role == Self::tool_role())
                 .enumerate()
                 .for_each(|(idx, message)| message.tool_call_id = Some(format!("{}", idx)));
 
             self.messages
                 .iter_mut()
-                .filter(|message| message.role == OpenAIChatRequest::assistant_role())
+                .filter(|message| message.role == Self::assistant_role())
                 .filter(|message| message.tool_calls.is_some())
                 .for_each(|message| {
                     if let Some(ref mut tc) = message.tool_calls {
