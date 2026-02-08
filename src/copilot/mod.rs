@@ -1,5 +1,5 @@
 pub mod models;
-mod utils;
+pub mod utils;
 
 use crate::openai::completion::models::{Tool, ToolCall, ToolChoice};
 use crate::server_chat_completion::{CopilotChoice, CopilotUsage};
