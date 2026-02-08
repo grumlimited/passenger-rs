@@ -6,6 +6,7 @@ mod login;
 mod openai;
 mod server;
 mod server_chat_completion;
+mod server_copilot;
 mod server_list_models;
 mod server_ollama_chat;
 mod storage;

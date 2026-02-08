@@ -4,6 +4,7 @@ use crate::openai::completion::models::{
     OpenAIChatRequest, OpenAIChatResponse, OpenAIChoice, OpenAIMessage, OpenAIUsage,
 };
 use crate::server::{AppError, AppState, Server};
+use crate::server_copilot::CopilotIntegration;
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -25,7 +26,7 @@ pub struct CopilotUsage {
     pub total_tokens: u32,
 }
 
-pub(crate) trait CoPilotChatCompletions {
+pub(crate) trait CoPilotChatCompletions: CopilotIntegration {
     async fn chat_completions(
         state: State<Arc<AppState>>,
         request: Json<OpenAIChatRequest>,
@@ -53,34 +54,11 @@ impl CoPilotChatCompletions for Server {
         // Forward request to Copilot API
         let copilot_url = format!("{}/chat/completions", state.config.copilot.api_base_url);
 
-        let response = state
-            .client
-            .post(&copilot_url)
-            .header("Authorization", format!("Bearer {}", token.token))
-            .header("Copilot-Integration-Id", "vscode-chat")
-            .header("Content-Type", "application/json")
-            .json(&copilot_request)
-            .send()
-            .await
-            .map_err(|e| {
-                error!("Failed to send request to Copilot API: {}", e);
-                AppError::InternalServerError(format!(
-                    "Failed to communicate with Copilot API: {}",
-                    e
-                ))
-            })?;
+        let response = Self::forward_prompt(state, token, copilot_url, &copilot_request).await?;
 
         let status = response.status();
         if !status.is_success() {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            error!("Copilot API returned error: {} - {}", status, error_text);
-            return Err(AppError::InternalServerError(format!(
-                "Copilot API error: {} - {}",
-                status, error_text
-            )));
+            return Self::handle_errors(response).await;
         }
 
         let copilot_response: CopilotChatResponse = response.json().await.map_err(|e| {
