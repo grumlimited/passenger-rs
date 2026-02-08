@@ -1,7 +1,9 @@
 mod auth;
 mod clap;
 mod config;
+mod copilot;
 mod login;
+mod openai;
 mod server;
 mod server_chat_completion;
 mod server_list_models;
@@ -22,7 +24,7 @@ async fn main() -> Result<()> {
 
     // Initialize tracing
     let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::DEBUG)
+        .with_max_level(Level::INFO)
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 

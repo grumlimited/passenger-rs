@@ -1,7 +1,7 @@
+use crate::copilot::CopilotChatRequest;
+use crate::copilot::{CopilotChatResponse, CopilotMessage};
+use crate::openai::completion::models::OpenAIChatRequest;
 use crate::server::{AppError, AppState, Server};
-use crate::server_chat_completion::{
-    CopilotChatRequest, CopilotChatResponse, CopilotMessage, OpenAIChatRequest,
-};
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -244,7 +244,9 @@ fn transform_to_ollama_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server_chat_completion::{CopilotChoice, CopilotUsage, FunctionDefinition, Tool};
+    use crate::openai::completion::models::FunctionDefinition;
+    use crate::openai::completion::models::{OpenAIChatRequest, Tool};
+    use crate::server_chat_completion::{CopilotChoice, CopilotUsage};
 
     #[test]
     fn test_openai_chat_request_multiple_tools_normalize() {

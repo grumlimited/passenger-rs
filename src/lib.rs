@@ -1,6 +1,8 @@
 pub mod auth;
 pub mod config;
+pub mod copilot;
 pub mod login;
+pub mod openai;
 pub mod server;
 pub mod server_chat_completion;
 pub mod server_list_models;
