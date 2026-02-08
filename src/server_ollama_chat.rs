@@ -70,7 +70,14 @@ impl OllamaChatEndpoint for Server {
         request: Json<OpenAIChatRequest>,
     ) -> Result<Json<OllamaChatResponse>, AppError> {
         let mut request = request.0;
+
+        // debug!(
+        //     "original_openai_request:\n{}",
+        //     serde_json::to_string_pretty(&request).unwrap()
+        // );
+
         request.normalize_tools();
+        request.convert_tool_messages_for_copilot();
 
         // Get a valid Copilot token
         let token = Self::get_token(state.clone()).await?;
@@ -241,6 +248,23 @@ mod tests {
     use crate::server_chat_completion::{CopilotChoice, CopilotUsage, FunctionDefinition, Tool};
 
     #[test]
+    fn test_openai_chat_request_multiple_tools_normalize() {
+        let json = include_str!("resources/rig_ollama_request_multiple_tools.json");
+        let mut json: OpenAIChatRequest = serde_json::from_str(&json).unwrap();
+
+        assert!(json
+            .messages
+            .iter()
+            .find(|m| m.role == "tool" && m.tool_call_id.is_none())
+            .is_some());
+
+        json.normalize_tools();
+        // json.convert_tool_messages_for_copilot();
+
+        println!("{}", serde_json::to_string_pretty(&json).unwrap());
+    }
+
+    #[test]
     fn test_openai_chat_request_normalize() {
         let json = include_str!("resources/rig_ollama_request.json");
         let mut json: OpenAIChatRequest = serde_json::from_str(&json).unwrap();
@@ -253,10 +277,18 @@ mod tests {
 
         json.normalize_tools();
 
+        println!("{}", serde_json::to_string_pretty(&json).unwrap());
+
         assert!(json
             .messages
             .iter()
             .find(|m| m.role == "tool" && m.tool_call_id.is_none())
+            .is_none());
+
+        assert!(json
+            .messages
+            .iter()
+            .find(|m| m.role == "tool" && m.name.is_none())
             .is_none());
     }
 

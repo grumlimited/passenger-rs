@@ -108,31 +108,46 @@ impl OpenAIChatRequest {
 
     /// Generates and assigns IDs to tool-related messages when they are missing.
     /// This method only modifies the request if ids_present() returns false.
-    /// 
+    ///
     /// It assigns:
     /// - tool_call_id to messages with role "tool" (indexed sequentially)
     /// - id to tool_calls in assistant messages (indexed sequentially)
-    /// 
+    ///
     /// If the original request already had IDs, this method does nothing,
     /// preserving the client-provided identifiers.
-    /// 
+    ///
     /// # Why This Is Necessary
-    /// 
+    ///
     /// This normalization is required because different API providers have different requirements:
     /// - **Ollama API**: Does not include tool_call_id or id fields in its specification
     /// - **OpenAI API**: Requires these IDs for proper tool calling workflow
     /// - **GitHub Copilot**: Follows OpenAI's standard and expects IDs to be present
-    /// 
+    ///
     /// When using frameworks like [Rig](https://github.com/0xPlaygrounds/rig) with its Ollama provider,
     /// the generated OpenAIChatRequest structs won't have these IDs. This proxy bridges
     /// that gap by auto-generating them before forwarding to GitHub Copilot.
     pub fn normalize_tools(&mut self) {
         if !self.ids_present() {
+            let assistant_tool_name = self
+                .messages
+                .iter()
+                .filter(|message| message.role == Self::assistant_role())
+                .flat_map(|message| match &message.tool_calls {
+                    Some(tool_calls) => tool_calls.clone(),
+                    _ => Vec::new(),
+                })
+                .map(|tool_call| tool_call.function.name)
+                .collect::<Vec<String>>();
+
             self.messages
                 .iter_mut()
                 .filter(|message| message.role == Self::tool_role())
                 .enumerate()
-                .for_each(|(idx, message)| message.tool_call_id = Some(format!("{}", idx)));
+                .zip(assistant_tool_name.iter())
+                .for_each(|((idx, message), tool_name)| {
+                    message.name = Some(tool_name.to_string());
+                    message.tool_call_id = Some(format!("{}", idx))
+                });
 
             self.messages
                 .iter_mut()
@@ -145,6 +160,81 @@ impl OpenAIChatRequest {
                         })
                     }
                 });
+        }
+    }
+
+    /// Duplicates tool messages as user messages for GitHub Copilot compatibility.
+    ///
+    /// GitHub Copilot validates that `tool_calls` in assistant messages have corresponding
+    /// `role: "tool"` messages with matching IDs. However, when `role: "tool"` messages are
+    /// present, Copilot sometimes returns empty choices arrays (intermittent behavior).
+    ///
+    /// This method works around both constraints by:
+    /// 1. Keeping the original `role: "tool"` messages in place (for validation)
+    /// 2. Appending `role: "user"` message duplicates after the last tool message
+    ///    (for the LLM to actually read and process)
+    ///
+    /// # Message Flow
+    ///
+    /// The method preserves the natural message ordering that Copilot expects:
+    /// - `assistant` message with `tool_calls`
+    /// - All corresponding `tool` messages (grouped together)
+    /// - User message summaries (appended at the end)
+    ///
+    /// Original:
+    /// ```json
+    /// [
+    ///   {"role": "assistant", "tool_calls": [{"id": "call_123", ...}]},
+    ///   {"role": "tool", "tool_call_id": "call_123", "name": "get_weather", "content": "{\"temperature\": 72}"}
+    /// ]
+    /// ```
+    ///
+    /// After duplication:
+    /// ```json
+    /// [
+    ///   {"role": "assistant", "tool_calls": [{"id": "call_123", ...}]},
+    ///   {"role": "tool", "tool_call_id": "call_123", "name": "get_weather", "content": "{\"temperature\": 72}"},
+    ///   {"role": "user", "content": "Tool 'get_weather' (call_123) returned: {\"temperature\": 72}"}
+    /// ]
+    /// ```
+    ///
+    /// This approach trades token consumption for reliability, ensuring Copilot both
+    /// validates the tool calling chain AND consistently processes the results.
+    pub fn convert_tool_messages_for_copilot(&mut self) {
+        let mut user_duplicates = Vec::new();
+        let mut last_tool_index = None;
+        
+        // Find all tool messages and create user message duplicates
+        for (idx, message) in self.messages.iter().enumerate() {
+            if message.role == Self::tool_role() {
+                last_tool_index = Some(idx);
+                
+                let tool_name = message.name.as_deref().unwrap_or("unknown_tool");
+                let tool_call_id = message.tool_call_id.as_deref().unwrap_or("unknown_id");
+                let original_content = message.content.as_deref().unwrap_or("");
+                
+                // Create a user message with formatted tool result
+                let user_message = OpenAIMessage {
+                    role: "user".to_string(),
+                    content: Some(format!(
+                        "Tool '{}' ({}) returned: {}",
+                        tool_name, tool_call_id, original_content
+                    )),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    name: None,
+                };
+                
+                user_duplicates.push(user_message);
+            }
+        }
+        
+        // Insert all user duplicates after the last tool message
+        if let Some(insert_pos) = last_tool_index {
+            // Insert in reverse order to maintain correct final ordering
+            for user_msg in user_duplicates.into_iter().rev() {
+                self.messages.insert(insert_pos + 1, user_msg);
+            }
         }
     }
 }
@@ -684,6 +774,221 @@ mod tests {
                 .len(),
             1,
             "Should have one tool call"
+        );
+    }
+
+    #[test]
+    fn test_convert_tool_messages_for_copilot() {
+        // Test that tool messages are duplicated as user messages appended after last tool
+        let mut request = OpenAIChatRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![
+                OpenAIMessage {
+                    role: "user".to_string(),
+                    content: Some("What's the weather?".to_string()),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    name: None,
+                },
+                OpenAIMessage {
+                    role: "assistant".to_string(),
+                    content: None,
+                    tool_calls: Some(vec![ToolCall {
+                        id: Some("call_123".to_string()),
+                        tool_type: "function".to_string(),
+                        function: FunctionCall {
+                            name: "get_weather".to_string(),
+                            arguments: "{\"location\":\"SF\"}".to_string(),
+                        },
+                    }]),
+                    tool_call_id: None,
+                    name: None,
+                },
+                OpenAIMessage {
+                    role: "tool".to_string(),
+                    content: Some("{\"temperature\":72,\"condition\":\"sunny\"}".to_string()),
+                    tool_calls: None,
+                    tool_call_id: Some("call_123".to_string()),
+                    name: Some("get_weather".to_string()),
+                },
+            ],
+            temperature: None,
+            max_tokens: None,
+            stream: false,
+            tools: None,
+            tool_choice: None,
+        };
+
+        request.convert_tool_messages_for_copilot();
+
+        // Should now have 4 messages: original 3 + 1 duplicate user message
+        assert_eq!(request.messages.len(), 4);
+        
+        // First two messages unchanged
+        assert_eq!(request.messages[0].role, "user");
+        assert_eq!(request.messages[1].role, "assistant");
+        
+        // Original tool message should still be there
+        assert_eq!(request.messages[2].role, "tool");
+        assert_eq!(request.messages[2].tool_call_id.as_deref(), Some("call_123"));
+        assert_eq!(request.messages[2].name.as_deref(), Some("get_weather"));
+        
+        // New user message should be appended after the last tool message
+        assert_eq!(request.messages[3].role, "user");
+        assert_eq!(
+            request.messages[3].content.as_ref().unwrap(),
+            "Tool 'get_weather' (call_123) returned: {\"temperature\":72,\"condition\":\"sunny\"}"
+        );
+        assert!(request.messages[3].tool_call_id.is_none());
+        assert!(request.messages[3].name.is_none());
+    }
+
+    #[test]
+    fn test_convert_multiple_tool_messages() {
+        // Test duplication of multiple tool messages - all user duplicates appended after last tool
+        let mut request = OpenAIChatRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![
+                OpenAIMessage {
+                    role: "assistant".to_string(),
+                    content: None,
+                    tool_calls: Some(vec![
+                        ToolCall {
+                            id: Some("call_1".to_string()),
+                            tool_type: "function".to_string(),
+                            function: FunctionCall {
+                                name: "get_weather".to_string(),
+                                arguments: "{}".to_string(),
+                            },
+                        },
+                        ToolCall {
+                            id: Some("call_2".to_string()),
+                            tool_type: "function".to_string(),
+                            function: FunctionCall {
+                                name: "get_stock".to_string(),
+                                arguments: "{}".to_string(),
+                            },
+                        },
+                    ]),
+                    tool_call_id: None,
+                    name: None,
+                },
+                OpenAIMessage {
+                    role: "tool".to_string(),
+                    content: Some("weather data".to_string()),
+                    tool_calls: None,
+                    tool_call_id: Some("call_1".to_string()),
+                    name: Some("get_weather".to_string()),
+                },
+                OpenAIMessage {
+                    role: "tool".to_string(),
+                    content: Some("stock data".to_string()),
+                    tool_calls: None,
+                    tool_call_id: Some("call_2".to_string()),
+                    name: Some("get_stock".to_string()),
+                },
+            ],
+            temperature: None,
+            max_tokens: None,
+            stream: false,
+            tools: None,
+            tool_choice: None,
+        };
+
+        request.convert_tool_messages_for_copilot();
+
+        // Should have 5 messages: 1 assistant + 2 tool + 2 user duplicates
+        assert_eq!(request.messages.len(), 5);
+        
+        // Assistant message first
+        assert_eq!(request.messages[0].role, "assistant");
+        
+        // Both tool messages kept in place
+        assert_eq!(request.messages[1].role, "tool");
+        assert_eq!(request.messages[1].tool_call_id.as_deref(), Some("call_1"));
+        assert_eq!(request.messages[2].role, "tool");
+        assert_eq!(request.messages[2].tool_call_id.as_deref(), Some("call_2"));
+        
+        // User duplicates appended after last tool message
+        assert_eq!(request.messages[3].role, "user");
+        assert_eq!(
+            request.messages[3].content.as_ref().unwrap(),
+            "Tool 'get_weather' (call_1) returned: weather data"
+        );
+        
+        assert_eq!(request.messages[4].role, "user");
+        assert_eq!(
+            request.messages[4].content.as_ref().unwrap(),
+            "Tool 'get_stock' (call_2) returned: stock data"
+        );
+    }
+
+    #[test]
+    fn test_convert_tool_messages_preserves_non_tool_messages() {
+        // Test that non-tool messages are not affected
+        let mut request = OpenAIChatRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![
+                OpenAIMessage {
+                    role: "system".to_string(),
+                    content: Some("You are helpful".to_string()),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    name: None,
+                },
+                OpenAIMessage {
+                    role: "user".to_string(),
+                    content: Some("Hello".to_string()),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    name: None,
+                },
+            ],
+            temperature: None,
+            max_tokens: None,
+            stream: false,
+            tools: None,
+            tool_choice: None,
+        };
+
+        request.convert_tool_messages_for_copilot();
+
+        // Should still have 2 messages, no duplicates
+        assert_eq!(request.messages.len(), 2);
+        assert_eq!(request.messages[0].role, "system");
+        assert_eq!(request.messages[1].role, "user");
+    }
+
+    #[test]
+    fn test_convert_with_missing_fields() {
+        // Test duplication when tool message has missing optional fields
+        let mut request = OpenAIChatRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![OpenAIMessage {
+                role: "tool".to_string(),
+                content: Some("result".to_string()),
+                tool_calls: None,
+                tool_call_id: None, // Missing
+                name: None,         // Missing
+            }],
+            temperature: None,
+            max_tokens: None,
+            stream: false,
+            tools: None,
+            tool_choice: None,
+        };
+
+        request.convert_tool_messages_for_copilot();
+
+        // Should have 2 messages now
+        assert_eq!(request.messages.len(), 2);
+        assert_eq!(request.messages[0].role, "tool");
+        assert_eq!(request.messages[1].role, "user");
+        
+        // User message should handle missing fields gracefully
+        assert_eq!(
+            request.messages[1].content.as_ref().unwrap(),
+            "Tool 'unknown_tool' (unknown_id) returned: result"
         );
     }
 }
