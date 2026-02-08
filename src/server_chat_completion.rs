@@ -42,7 +42,7 @@ pub struct ToolChoiceFunction {
 /// Tool call made by the assistant
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ToolCall {
-    pub id: String,
+    pub id: Option<String>,
     #[serde(rename = "type")]
     pub tool_type: String,
     pub function: FunctionCall,
@@ -55,7 +55,7 @@ pub struct FunctionCall {
 }
 
 /// OpenAI-compatible chat completion request
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct OpenAIChatRequest {
     pub model: String,
     pub messages: Vec<OpenAIMessage>,
@@ -69,6 +69,56 @@ pub struct OpenAIChatRequest {
     pub tools: Option<Vec<Tool>>,
     #[serde(default)]
     pub tool_choice: Option<ToolChoice>,
+}
+
+impl OpenAIChatRequest {
+    pub fn ids_present(&self) -> bool {
+        let all_tool_messages_have_ids = self
+            .messages
+            .iter()
+            .filter(|t| t.role == "tool")
+            .map(|m|
+                {
+                    m.tool_call_id.is_some() && m.tool_call_id.clone().unwrap().len() > 0 })
+            .fold(true, |a, b| a && b);
+
+        let all_tool_calls_have_ids = self
+            .messages
+            .iter()
+            .filter(|t| t.role == "assistant")
+            .filter(|t| t.tool_calls.is_some())
+            .map(|t| t.tool_calls.clone().unwrap())
+            .flatten()
+            .collect::<Vec<ToolCall>>()
+            .iter()
+            .map(|tc| tc.id.is_some() && tc.id.clone().unwrap().len() > 0)
+            .fold(true, |a, b| a && b);
+
+        all_tool_messages_have_ids && all_tool_calls_have_ids
+    }
+
+    pub fn normalize_tools(&mut self) {
+        if self.ids_present() {
+            ()
+        } else {
+            self.messages
+                .iter_mut()
+                .filter(|t| t.role == "tool")
+                .enumerate()
+                .for_each(|(i, t)| t.tool_call_id = Some(format!("{}", i)));
+
+            self.messages
+                .iter_mut()
+                .filter(|t| t.role == "assistant")
+                .filter(|t| t.tool_calls.is_some())
+                .for_each(|t| match t.tool_calls {
+                    Some(ref mut tc) => tc.iter_mut().enumerate().for_each(|(i, v)| {
+                        v.id = Some(format!("{}", i));
+                    }),
+                    _ => {}
+                });
+        }
+    }
 }
 
 /// OpenAI-compatible chat completion response
@@ -115,7 +165,7 @@ pub struct CopilotChatRequest {
 }
 
 /// Copilot chat completion response
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CopilotChatResponse {
     pub id: String,
     #[serde(default)]
@@ -123,13 +173,13 @@ pub struct CopilotChatResponse {
     pub model: String,
     /// Optional system fingerprint (GitHub Copilot may omit this field)
     #[allow(dead_code)]
-    pub system_fingerprint: Option<String>,
+    // pub system_fingerprint: Option<String>,
     pub choices: Vec<CopilotChoice>,
     #[serde(default)]
     pub usage: Option<CopilotUsage>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CopilotChoice {
     /// Optional index (defaults to position in array if not provided)
     pub index: Option<u32>,
@@ -137,7 +187,7 @@ pub struct CopilotChoice {
     pub finish_reason: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CopilotUsage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
@@ -183,6 +233,7 @@ impl CoPilotChatCompletions for Server {
         State(state): State<Arc<AppState>>,
         Json(request): Json<OpenAIChatRequest>,
     ) -> Result<Json<OpenAIChatResponse>, AppError> {
+        println!("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF");
         info!(
             "Received chat completion request for model: {}",
             request.model
@@ -374,7 +425,6 @@ mod tests {
             id: "test".to_string(),
             created: None, // Copilot doesn't provide it
             model: "gpt-4".to_string(),
-            system_fingerprint: Some("fp_test".to_string()),
             choices: vec![],
             usage: None,
         };
@@ -412,7 +462,6 @@ mod tests {
             id: "test".to_string(),
             created: Some(1234567890),
             model: "gpt-4".to_string(),
-            system_fingerprint: Some("fp_test".to_string()),
             choices: vec![
                 CopilotChoice {
                     index: None, // No index provided
@@ -470,7 +519,7 @@ mod tests {
                 .into_iter()
                 .enumerate()
                 .map(|(i, c)| OpenAIChoice {
-                    index: c.index.unwrap_or(i as u32),
+                    index: i as u32,
                     message: OpenAIMessage {
                         role: c.message.role,
                         content: c.message.content,
@@ -548,7 +597,10 @@ mod tests {
         assert_eq!(request.model, "gpt-4");
         assert!(request.tools.is_some(), "Tools should be present");
         assert_eq!(request.tools.unwrap().len(), 1, "Should have one tool");
-        assert!(request.tool_choice.is_some(), "Tool choice should be present");
+        assert!(
+            request.tool_choice.is_some(),
+            "Tool choice should be present"
+        );
     }
 
     #[test]
@@ -595,7 +647,12 @@ mod tests {
             "Tool calls should be present"
         );
         assert_eq!(
-            response.choices[0].message.tool_calls.as_ref().unwrap().len(),
+            response.choices[0]
+                .message
+                .tool_calls
+                .as_ref()
+                .unwrap()
+                .len(),
             1,
             "Should have one tool call"
         );

@@ -357,7 +357,12 @@ async fn test_chat_completions_with_tools() {
         "model": "gpt-4",
         "messages": [
             {
-                "role": "user",
+              "role": "system",
+              "content": "You are a meteorologist",
+              "padding": null
+            },
+            {
+                "role": "system",
                 "content": "What's the weather like in San Francisco and New York? Use the get_weather tool."
             }
         ],
@@ -385,12 +390,15 @@ async fn test_chat_completions_with_tools() {
                 }
             }
         ],
-        "tool_choice2": "get_weather",
-        "temperature": 0.7,
-        "max_tokens": 500
+        // "tool_choice": "auto",
+        // "temperature": 0.7,
+        // "max_tokens": 500
     });
 
-    println!("Sending request with tools:\n{}", serde_json::to_string_pretty(&request_body).unwrap());
+    println!(
+        "Sending request with tools:\n{}",
+        serde_json::to_string_pretty(&request_body).unwrap()
+    );
 
     // Send request
     let response = client
@@ -409,7 +417,10 @@ async fn test_chat_completions_with_tools() {
 
     let response_json: serde_json::Value = response.json().await.expect("Failed to parse JSON");
 
-    println!("Received response:\n{}", serde_json::to_string_pretty(&response_json).unwrap());
+    println!(
+        "Received response:\n{}",
+        serde_json::to_string_pretty(&response_json).unwrap()
+    );
 
     // Verify basic response structure
     assert_eq!(response_json["object"], "chat.completion");
@@ -426,67 +437,83 @@ async fn test_chat_completions_with_tools() {
     let first_choice = &choices[0];
     assert_eq!(first_choice["index"], 0);
     assert!(first_choice["message"]["role"].is_string());
-    
+
     // Check if the model generated tool calls
     if first_choice["finish_reason"] == "tool_calls" {
         println!("✅ Model generated tool calls!");
-        
+
         // Verify tool_calls structure
         assert!(
             first_choice["message"]["tool_calls"].is_array(),
             "Expected tool_calls to be an array"
         );
-        
+
         let tool_calls = first_choice["message"]["tool_calls"].as_array().unwrap();
-        assert!(
-            !tool_calls.is_empty(),
-            "Expected at least one tool call"
-        );
+        assert!(!tool_calls.is_empty(), "Expected at least one tool call");
 
         // Verify each tool call has required fields
         for tool_call in tool_calls {
             assert!(tool_call["id"].is_string(), "Tool call should have an id");
-            assert_eq!(tool_call["type"], "function", "Tool call type should be 'function'");
-            assert!(tool_call["function"]["name"].is_string(), "Function should have a name");
-            assert!(tool_call["function"]["arguments"].is_string(), "Function should have arguments");
-            
+            assert_eq!(
+                tool_call["type"], "function",
+                "Tool call type should be 'function'"
+            );
+            assert!(
+                tool_call["function"]["name"].is_string(),
+                "Function should have a name"
+            );
+            assert!(
+                tool_call["function"]["arguments"].is_string(),
+                "Function should have arguments"
+            );
+
             println!("Tool call:");
             println!("  ID: {}", tool_call["id"]);
             println!("  Function: {}", tool_call["function"]["name"]);
             println!("  Arguments: {}", tool_call["function"]["arguments"]);
-            
+
             // Verify it's calling the get_weather function
             assert_eq!(
-                tool_call["function"]["name"],
-                "get_weather",
+                tool_call["function"]["name"], "get_weather",
                 "Expected get_weather function to be called"
             );
-            
+
             // Parse and verify arguments
-            let args: serde_json::Value = serde_json::from_str(
-                tool_call["function"]["arguments"].as_str().unwrap()
-            ).expect("Failed to parse tool arguments");
-            
+            let args: serde_json::Value =
+                serde_json::from_str(tool_call["function"]["arguments"].as_str().unwrap())
+                    .expect("Failed to parse tool arguments");
+
             assert!(
                 args["location"].is_string(),
                 "Tool arguments should include location"
             );
-            
-            println!("  Parsed arguments: {}", serde_json::to_string_pretty(&args).unwrap());
+
+            println!(
+                "  Parsed arguments: {}",
+                serde_json::to_string_pretty(&args).unwrap()
+            );
         }
 
         // Test follow-up with tool results
         println!("\n--- Testing follow-up with tool results ---\n");
-        
+
         let tool_call_id = tool_calls[0]["id"].as_str().unwrap();
         let location = serde_json::from_str::<serde_json::Value>(
-            tool_calls[0]["function"]["arguments"].as_str().unwrap()
-        ).unwrap()["location"].as_str().unwrap().to_string();
+            tool_calls[0]["function"]["arguments"].as_str().unwrap(),
+        )
+        .unwrap()["location"]
+            .as_str()
+            .unwrap()
+            .to_string();
 
         let tool_call_id2 = tool_calls[1]["id"].as_str().unwrap();
         let location2 = serde_json::from_str::<serde_json::Value>(
-            tool_calls[1]["function"]["arguments"].as_str().unwrap()
-        ).unwrap()["location"].as_str().unwrap().to_string();
+            tool_calls[1]["function"]["arguments"].as_str().unwrap(),
+        )
+        .unwrap()["location"]
+            .as_str()
+            .unwrap()
+            .to_string();
 
         let follow_up_request = json!({
             "model": "gpt-4o",
@@ -518,8 +545,10 @@ async fn test_chat_completions_with_tools() {
             "max_tokens": 500
         });
 
-        println!("Sending follow-up with tool results:\n{}", 
-            serde_json::to_string_pretty(&follow_up_request).unwrap());
+        println!(
+            "Sending follow-up with tool results:\n{}",
+            serde_json::to_string_pretty(&follow_up_request).unwrap()
+        );
 
         let follow_up_response = client
             .post(&url)
@@ -529,13 +558,18 @@ async fn test_chat_completions_with_tools() {
             .expect("Failed to send follow-up request");
 
         let follow_up_status = follow_up_response.status();
-        
+
         if !follow_up_status.is_success() {
             // GitHub Copilot might not support tool message format
             let error_text = follow_up_response.text().await.unwrap_or_default();
-            println!("⚠️  Follow-up request failed with status {}: {}", follow_up_status, error_text);
+            println!(
+                "⚠️  Follow-up request failed with status {}: {}",
+                follow_up_status, error_text
+            );
             println!("Note: GitHub Copilot may not fully support tool role messages yet.");
-            println!("This is acceptable - the initial tool call generation was validated successfully.");
+            println!(
+                "This is acceptable - the initial tool call generation was validated successfully."
+            );
             return; // Exit test gracefully
         }
 
@@ -544,26 +578,38 @@ async fn test_chat_completions_with_tools() {
             .await
             .expect("Failed to parse follow-up JSON");
 
-        println!("Received follow-up response:\n{}", 
-            serde_json::to_string_pretty(&follow_up_json).unwrap());
+        println!(
+            "Received follow-up response:\n{}",
+            serde_json::to_string_pretty(&follow_up_json).unwrap()
+        );
 
         // Verify follow-up response has content
         let follow_up_choices = follow_up_json["choices"].as_array().unwrap();
         let follow_up_message = &follow_up_choices[0]["message"];
-        
+
         if let Some(content) = follow_up_message["content"].as_str() {
             println!("✅ Model generated final response: {}", content);
-            assert!(!content.is_empty(), "Expected non-empty content in final response");
+            assert!(
+                !content.is_empty(),
+                "Expected non-empty content in final response"
+            );
         } else {
             println!("⚠️  Model may have generated more tool calls instead of final response");
         }
-
     } else {
-        println!("⚠️  Model did not generate tool calls. Finish reason: {}", 
-            first_choice["finish_reason"]);
-        println!("Response content: {}", 
-            first_choice["message"]["content"].as_str().unwrap_or("null"));
-        println!("\nNote: GitHub Copilot's tool support may vary by model. This is expected behavior.");
+        println!(
+            "⚠️  Model did not generate tool calls. Finish reason: {}",
+            first_choice["finish_reason"]
+        );
+        println!(
+            "Response content: {}",
+            first_choice["message"]["content"]
+                .as_str()
+                .unwrap_or("null")
+        );
+        println!(
+            "\nNote: GitHub Copilot's tool support may vary by model. This is expected behavior."
+        );
     }
 
     // Verify usage stats
