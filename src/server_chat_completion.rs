@@ -217,16 +217,16 @@ impl OpenAIChatRequest {
     fn duplicate_tool_messages_as_user(&mut self) {
         let mut user_duplicates = Vec::new();
         let mut last_tool_index = None;
-        
+
         // Find all tool messages and create user message duplicates
         for (idx, message) in self.messages.iter().enumerate() {
             if message.role == Self::tool_role() {
                 last_tool_index = Some(idx);
-                
+
                 let tool_name = message.name.as_deref().unwrap_or("unknown_tool");
                 let tool_call_id = message.tool_call_id.as_deref().unwrap_or("unknown_id");
                 let original_content = message.content.as_deref().unwrap_or("");
-                
+
                 // Create a user message with formatted tool result
                 let user_message = OpenAIMessage {
                     role: "user".to_string(),
@@ -238,11 +238,11 @@ impl OpenAIChatRequest {
                     tool_call_id: None,
                     name: None,
                 };
-                
+
                 user_duplicates.push(user_message);
             }
         }
-        
+
         // Insert all user duplicates after the last tool message
         if let Some(insert_pos) = last_tool_index {
             // Insert in reverse order to maintain correct final ordering
@@ -837,16 +837,19 @@ mod tests {
 
         // Should now have 4 messages: original 3 + 1 duplicate user message
         assert_eq!(request.messages.len(), 4);
-        
+
         // First two messages unchanged
         assert_eq!(request.messages[0].role, "user");
         assert_eq!(request.messages[1].role, "assistant");
-        
+
         // Original tool message should still be there
         assert_eq!(request.messages[2].role, "tool");
-        assert_eq!(request.messages[2].tool_call_id.as_deref(), Some("call_123"));
+        assert_eq!(
+            request.messages[2].tool_call_id.as_deref(),
+            Some("call_123")
+        );
         assert_eq!(request.messages[2].name.as_deref(), Some("get_weather"));
-        
+
         // New user message should be appended after the last tool message
         assert_eq!(request.messages[3].role, "user");
         assert_eq!(
@@ -913,23 +916,23 @@ mod tests {
 
         // Should have 5 messages: 1 assistant + 2 tool + 2 user duplicates
         assert_eq!(request.messages.len(), 5);
-        
+
         // Assistant message first
         assert_eq!(request.messages[0].role, "assistant");
-        
+
         // Both tool messages kept in place
         assert_eq!(request.messages[1].role, "tool");
         assert_eq!(request.messages[1].tool_call_id.as_deref(), Some("call_1"));
         assert_eq!(request.messages[2].role, "tool");
         assert_eq!(request.messages[2].tool_call_id.as_deref(), Some("call_2"));
-        
+
         // User duplicates appended after last tool message
         assert_eq!(request.messages[3].role, "user");
         assert_eq!(
             request.messages[3].content.as_ref().unwrap(),
             "Tool 'get_weather' (call_1) returned: weather data"
         );
-        
+
         assert_eq!(request.messages[4].role, "user");
         assert_eq!(
             request.messages[4].content.as_ref().unwrap(),
@@ -998,7 +1001,7 @@ mod tests {
         assert_eq!(request.messages.len(), 2);
         assert_eq!(request.messages[0].role, "tool");
         assert_eq!(request.messages[1].role, "user");
-        
+
         // User message should handle missing fields gracefully
         assert_eq!(
             request.messages[1].content.as_ref().unwrap(),
