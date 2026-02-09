@@ -1,7 +1,7 @@
 use crate::copilot::{CopilotChatRequest, CopilotMessage};
 use crate::openai::completion::models::OpenAIChatRequest;
-use crate::openai::rig::models::prompt::Content::InputText;
-use crate::openai::rig::models::prompt::PromptRequest;
+use crate::openai::responses::models::prompt::Content::InputText;
+use crate::openai::responses::models::prompt::PromptRequest;
 
 impl From<OpenAIChatRequest> for CopilotChatRequest {
     fn from(request: OpenAIChatRequest) -> Self {
@@ -118,7 +118,7 @@ impl From<PromptRequest> for CopilotChatRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::openai::rig::models::prompt::PromptRequest;
+    use crate::openai::responses::models::prompt::PromptRequest;
     use serde_json;
 
     #[test]

@@ -27,6 +27,10 @@ async fn health_check() -> &'static str {
     "OK"
 }
 
+async fn test(request: String) -> &'static str {
+    "OK"
+}
+
 /// Custom error type for API responses
 #[derive(Debug)]
 pub enum AppError {
@@ -79,6 +83,7 @@ impl Server {
             .route("/v1/api/chat", post(Self::ollama_chat))
             .route("/v1/models", get(Self::list_models))
             .route("/health", get(health_check))
+            .route("/responses", post(test))
             .with_state(state)
     }
 

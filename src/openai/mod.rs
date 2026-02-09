@@ -1,2 +1,2 @@
 pub mod completion;
-pub mod rig;
+pub mod responses;
