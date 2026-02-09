@@ -1,3 +1,3 @@
 pub mod prompt_request;
-mod prompt_response;
-mod utils;
+pub mod prompt_response;
+pub mod utils;

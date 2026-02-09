@@ -1,7 +1,11 @@
-use crate::copilot::{CopilotChatRequest, CopilotMessage};
+use crate::copilot::{CopilotChatRequest, CopilotChatResponse, CopilotMessage};
 use crate::openai::completion::models::OpenAIChatRequest;
 use crate::openai::responses::models::prompt_request::Content::InputText;
 use crate::openai::responses::models::prompt_request::PromptRequest;
+use crate::openai::responses::models::prompt_response::{
+    CompletionResponse, Output, ResponsesUsage,
+};
+use crate::server_chat_completion::{CopilotChoice, CopilotUsage};
 
 impl From<OpenAIChatRequest> for CopilotChatRequest {
     fn from(request: OpenAIChatRequest) -> Self {
@@ -166,3 +170,85 @@ mod tests {
         );
     }
 }
+
+
+impl From<CompletionResponse> for CopilotChatResponse {
+    fn from(resp: CompletionResponse) -> Self {
+        // Map usage
+        let usage = resp.usage.map(|u| CopilotUsage::from(u));
+        // Map choices
+        let choices = resp
+            .output
+            .into_iter()
+            .enumerate()
+            .map(|(i, output)| match output {
+                Output::Message(msg) => CopilotChoice {
+                    index: Some(i as u32),
+                    message: CopilotMessage {
+                        role: msg.role.to_string(),
+                        content: msg.content.get(0).and_then(|c| match c {
+                            crate::openai::responses::models::prompt_response::AssistantContent::OutputText(text) => Some(text.text.clone()),
+                            crate::openai::responses::models::prompt_response::AssistantContent::Refusal { refusal } => Some(refusal.clone()),
+                        }),
+                        padding: None,
+                        tool_calls: None, // TODO if tool calls appear in OutputMessage, support mapping
+                        tool_call_id: None,
+                        name: None,
+                    },
+                    finish_reason: "stop".to_string(),
+                },
+                Output::FunctionCall(fc) => CopilotChoice {
+                    index: Some(i as u32),
+                    message: CopilotMessage {
+                        role: "assistant".to_string(),
+                        content: None,
+                        padding: None,
+                        tool_calls: Some(vec![crate::openai::completion::models::ToolCall {
+                            id: Some(fc.id),
+                            tool_type: "function".to_string(),
+                            function: crate::openai::completion::models::FunctionCall {
+                                name: fc.name.clone(),
+                                arguments: fc.arguments.to_string(),
+                            },
+                        }]),
+                        tool_call_id: Some(fc.call_id),
+                        name: Some(fc.name),
+                    },
+                    finish_reason: "function_call".to_string(),
+                },
+                Output::Reasoning { id: _, summary } => CopilotChoice {
+                    index: Some(i as u32),
+                    message: CopilotMessage {
+                        role: "assistant".to_string(),
+                        content: Some(summary.iter().map(|s| match s {
+                            crate::openai::responses::models::prompt_response::ReasoningSummary::SummaryText { text } => text.clone(),
+                        }).collect::<Vec<_>>().join("\n")),
+                        padding: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                        name: None,
+                    },
+                    finish_reason: "reasoning".to_string(),
+                },
+            })
+            .collect();
+        Self {
+            id: resp.id,
+            created: Some(resp.created_at),
+            model: resp.model,
+            choices,
+            usage,
+        }
+    }
+}
+
+impl From<ResponsesUsage> for CopilotUsage {
+    fn from(u: ResponsesUsage) -> Self {
+        CopilotUsage {
+            prompt_tokens: u.input_tokens as u32,
+            completion_tokens: u.output_tokens as u32,
+            total_tokens: u.total_tokens as u32,
+        }
+    }
+}
+
