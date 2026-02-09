@@ -117,61 +117,6 @@ impl From<PromptRequest> for CopilotChatRequest {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::openai::responses::models::prompt_request::PromptRequest;
-    use serde_json;
-
-    #[test]
-    fn test_prompt_request_to_copilot_chat_request() {
-        // Load rig_openai_prompt_request.json as string
-        let json = include_str!("../resources/rig_openai_prompt_request.json");
-
-        // Parse PromptRequest
-        let prompt_request: PromptRequest =
-            serde_json::from_str(json).expect("Failed to parse PromptRequest");
-
-        // Convert to CopilotChatRequest
-        let copilot_request: CopilotChatRequest = prompt_request.into();
-
-        // Check model field
-        assert_eq!(copilot_request.model, "claude-sonnet-4.5");
-
-        // Check system instructions message
-        assert_eq!(copilot_request.messages[0].role, "system");
-        assert!(copilot_request.messages[0]
-            .content
-            .as_ref()
-            .unwrap()
-            .contains("Return a comma-separated list of ticker symbols"));
-
-        // Check user message
-        assert_eq!(copilot_request.messages[1].role, "user");
-        assert!(copilot_request.messages[1]
-            .content
-            .as_ref()
-            .unwrap()
-            .starts_with("Extract the ticker symbols"));
-
-        // Check max_tokens
-        assert_eq!(copilot_request.max_tokens, Some(2000));
-
-        // Check tools conversion
-        assert!(copilot_request.tools.is_some());
-        assert_eq!(copilot_request.tools.as_ref().unwrap().len(), 2);
-        assert_eq!(
-            copilot_request.tools.as_ref().unwrap()[0].function.name,
-            "get_portfolio_tickers"
-        );
-        assert_eq!(
-            copilot_request.tools.as_ref().unwrap()[1].function.name,
-            "get_portfolio"
-        );
-    }
-}
-
-
 impl From<CompletionResponse> for CopilotChatResponse {
     fn from(resp: CompletionResponse) -> Self {
         // Map usage
@@ -252,3 +197,56 @@ impl From<ResponsesUsage> for CopilotUsage {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::openai::responses::models::prompt_request::PromptRequest;
+    use serde_json;
+
+    #[test]
+    fn test_prompt_request_to_copilot_chat_request() {
+        // Load rig_openai_prompt_request.json as string
+        let json = include_str!("../resources/rig_openai_prompt_request.json");
+
+        // Parse PromptRequest
+        let prompt_request: PromptRequest =
+            serde_json::from_str(json).expect("Failed to parse PromptRequest");
+
+        // Convert to CopilotChatRequest
+        let copilot_request: CopilotChatRequest = prompt_request.into();
+
+        // Check model field
+        assert_eq!(copilot_request.model, "claude-sonnet-4.5");
+
+        // Check system instructions message
+        assert_eq!(copilot_request.messages[0].role, "system");
+        assert!(copilot_request.messages[0]
+            .content
+            .as_ref()
+            .unwrap()
+            .contains("Return a comma-separated list of ticker symbols"));
+
+        // Check user message
+        assert_eq!(copilot_request.messages[1].role, "user");
+        assert!(copilot_request.messages[1]
+            .content
+            .as_ref()
+            .unwrap()
+            .starts_with("Extract the ticker symbols"));
+
+        // Check max_tokens
+        assert_eq!(copilot_request.max_tokens, Some(2000));
+
+        // Check tools conversion
+        assert!(copilot_request.tools.is_some());
+        assert_eq!(copilot_request.tools.as_ref().unwrap().len(), 2);
+        assert_eq!(
+            copilot_request.tools.as_ref().unwrap()[0].function.name,
+            "get_portfolio_tickers"
+        );
+        assert_eq!(
+            copilot_request.tools.as_ref().unwrap()[1].function.name,
+            "get_portfolio"
+        );
+    }
+}
