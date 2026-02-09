@@ -4,6 +4,7 @@ use crate::config::Config;
 use crate::server_chat_completion::*;
 use crate::server_list_models::*;
 use crate::server_ollama_chat::*;
+use crate::server_openai_responses_chat::*;
 use crate::{server, token_manager};
 use axum::{
     http::StatusCode,
@@ -24,10 +25,6 @@ pub struct AppState {
 
 /// Health check endpoint
 async fn health_check() -> &'static str {
-    "OK"
-}
-
-async fn test(request: String) -> &'static str {
     "OK"
 }
 
@@ -83,7 +80,7 @@ impl Server {
             .route("/v1/api/chat", post(Self::ollama_chat))
             .route("/v1/models", get(Self::list_models))
             .route("/health", get(health_check))
-            .route("/responses", post(test))
+            .route("/responses", post(Self::openai_responses_chat))
             .with_state(state)
     }
 

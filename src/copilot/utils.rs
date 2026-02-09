@@ -3,9 +3,13 @@ use crate::openai::completion::models::OpenAIChatRequest;
 use crate::openai::responses::models::prompt_request::Content::InputText;
 use crate::openai::responses::models::prompt_request::PromptRequest;
 use crate::openai::responses::models::prompt_response::{
+    AdditionalParameters, AssistantContent, OutputFunctionCall, OutputMessage, OutputRole,
+    OutputTokensDetails, ResponseObject, ResponseStatus, ResponsesToolDefinition, Text, ToolStatus,
+};
+use crate::openai::responses::models::prompt_response::{
     CompletionResponse, Output, ResponsesUsage,
 };
-use crate::server_chat_completion::{CopilotChoice, CopilotUsage};
+use crate::server_chat_completion::CopilotUsage;
 
 impl From<OpenAIChatRequest> for CopilotChatRequest {
     fn from(request: OpenAIChatRequest) -> Self {
@@ -117,82 +121,92 @@ impl From<PromptRequest> for CopilotChatRequest {
     }
 }
 
-impl From<CompletionResponse> for CopilotChatResponse {
-    fn from(resp: CompletionResponse) -> Self {
-        // Map usage
-        let usage = resp.usage.map(|u| CopilotUsage::from(u));
-        // Map choices
-        let choices = resp
-            .output
-            .into_iter()
+impl From<CopilotChatResponse> for CompletionResponse {
+    fn from(resp: CopilotChatResponse) -> Self {
+        // usage mapping
+        let usage = resp.usage.map(ResponsesUsage::from);
+        // output mapping
+        let output = resp
+            .choices
+            .iter()
             .enumerate()
-            .map(|(i, output)| match output {
-                Output::Message(msg) => CopilotChoice {
-                    index: Some(i as u32),
-                    message: CopilotMessage {
-                        role: msg.role.to_string(),
-                        content: msg.content.get(0).and_then(|c| match c {
-                            crate::openai::responses::models::prompt_response::AssistantContent::OutputText(text) => Some(text.text.clone()),
-                            crate::openai::responses::models::prompt_response::AssistantContent::Refusal { refusal } => Some(refusal.clone()),
-                        }),
-                        padding: None,
-                        tool_calls: None, // TODO if tool calls appear in OutputMessage, support mapping
-                        tool_call_id: None,
-                        name: None,
-                    },
-                    finish_reason: "stop".to_string(),
-                },
-                Output::FunctionCall(fc) => CopilotChoice {
-                    index: Some(i as u32),
-                    message: CopilotMessage {
-                        role: "assistant".to_string(),
-                        content: None,
-                        padding: None,
-                        tool_calls: Some(vec![crate::openai::completion::models::ToolCall {
-                            id: Some(fc.id),
-                            tool_type: "function".to_string(),
-                            function: crate::openai::completion::models::FunctionCall {
-                                name: fc.name.clone(),
-                                arguments: fc.arguments.to_string(),
+            .map(|(i, choice)| {
+                let msg = &choice.message;
+                // If there are tool_calls, produce FunctionCall, else Message
+                if let Some(tool_calls) = &msg.tool_calls {
+                    // Take the first tool_call for mapping
+                    let tc = &tool_calls[0];
+                    Output::FunctionCall(OutputFunctionCall {
+                        id: tc.id.clone().unwrap_or_default(),
+                        arguments: tc.function.arguments.clone(),
+                        // arguments: serde_json::from_str(&tc.function.arguments).unwrap_or_default(),
+                        call_id: msg.tool_call_id.clone().unwrap_or_default(),
+                        name: tc.function.name.clone(),
+                        status: ToolStatus::Completed,
+                    })
+                } else {
+                    // Reasoning: if role is assistant and content is present, treat as Message, else Reasoning variant
+                    Output::Message(OutputMessage {
+                        id: format!("{}-{}", resp.id, i),
+                        role: OutputRole::Assistant,
+                        status: ResponseStatus::Completed,
+                        content: vec![match &msg.content {
+                            Some(content) => AssistantContent::OutputText(Text {
+                                text: content.clone(),
+                            }),
+                            None => AssistantContent::Refusal {
+                                refusal: "No content".to_string(),
                             },
-                        }]),
-                        tool_call_id: Some(fc.call_id),
-                        name: Some(fc.name),
-                    },
-                    finish_reason: "function_call".to_string(),
-                },
-                Output::Reasoning { id: _, summary } => CopilotChoice {
-                    index: Some(i as u32),
-                    message: CopilotMessage {
-                        role: "assistant".to_string(),
-                        content: Some(summary.iter().map(|s| match s {
-                            crate::openai::responses::models::prompt_response::ReasoningSummary::SummaryText { text } => text.clone(),
-                        }).collect::<Vec<_>>().join("\n")),
-                        padding: None,
-                        tool_calls: None,
-                        tool_call_id: None,
-                        name: None,
-                    },
-                    finish_reason: "reasoning".to_string(),
-                },
+                        }],
+                    })
+                }
             })
             .collect();
-        Self {
+        CompletionResponse {
             id: resp.id,
-            created: Some(resp.created_at),
+            object: ResponseObject::Response,
+            created_at: resp.created.unwrap_or_default(),
+            status: ResponseStatus::Completed,
+            error: None,
+            incomplete_details: None,
+            instructions: None,
+            max_output_tokens: None,
             model: resp.model,
-            choices,
             usage,
+            output,
+            tools: {
+                let mut tool_defs = Vec::new();
+                for choice in &resp.choices {
+                    if let Some(tool_calls) = &choice.message.tool_calls {
+                        for tc in tool_calls {
+                            tool_defs.push(ResponsesToolDefinition {
+                                name: tc.function.name.clone(),
+                                parameters: serde_json::from_str(&tc.function.arguments)
+                                    .unwrap_or_default(),
+                                strict: true,
+                                kind: tc.tool_type.clone(),
+                                description: String::new(),
+                            });
+                        }
+                    }
+                }
+                tool_defs
+            },
+            additional_parameters: AdditionalParameters::default(),
         }
     }
 }
 
-impl From<ResponsesUsage> for CopilotUsage {
-    fn from(u: ResponsesUsage) -> Self {
-        CopilotUsage {
-            prompt_tokens: u.input_tokens as u32,
-            completion_tokens: u.output_tokens as u32,
-            total_tokens: u.total_tokens as u32,
+impl From<CopilotUsage> for ResponsesUsage {
+    fn from(u: CopilotUsage) -> Self {
+        ResponsesUsage {
+            input_tokens: u.prompt_tokens as u64,
+            input_tokens_details: None,
+            output_tokens: u.completion_tokens as u64,
+            output_tokens_details: OutputTokensDetails {
+                reasoning_tokens: 0,
+            },
+            total_tokens: u.total_tokens as u64,
         }
     }
 }

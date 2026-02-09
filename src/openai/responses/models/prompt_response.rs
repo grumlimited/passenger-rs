@@ -1,4 +1,3 @@
-use crate::openai;
 use serde::{Deserialize, Serialize};
 use serde_json::Map;
 
@@ -281,8 +280,8 @@ pub struct StructuredOutputsInput {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct OutputFunctionCall {
     pub id: String,
-    #[serde(with = "openai::stringified_json")]
-    pub arguments: serde_json::Value,
+    // #[serde(with = "openai::stringified_json")]
+    pub arguments: String,
     pub call_id: String,
     pub name: String,
     pub status: ToolStatus,

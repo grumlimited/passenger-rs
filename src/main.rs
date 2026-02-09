@@ -9,6 +9,7 @@ mod server_chat_completion;
 mod server_copilot;
 mod server_list_models;
 mod server_ollama_chat;
+mod server_openai_responses_chat;
 mod storage;
 mod token_manager;
 
@@ -25,7 +26,7 @@ async fn main() -> Result<()> {
 
     // Initialize tracing
     let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::INFO)
+        .with_max_level(Level::DEBUG)
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
