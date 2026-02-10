@@ -5,6 +5,7 @@ use crate::openai::responses::models::prompt_response::CompletionResponse;
 use crate::server::{AppError, AppState, Server};
 use crate::server_copilot::CopilotIntegration;
 use axum::{extract::State, Json};
+use serde_json::Value;
 use std::sync::Arc;
 use tracing::debug;
 use tracing::log::{error, info};
@@ -12,16 +13,22 @@ use tracing::log::{error, info};
 pub(crate) trait OpenAiResponsesEndpoint: CopilotIntegration {
     async fn openai_responses_chat(
         state: State<Arc<AppState>>,
-        request: Json<PromptRequest>,
+        request_as_text: String,
     ) -> Result<Json<CompletionResponse>, AppError>;
 }
 
 impl OpenAiResponsesEndpoint for Server {
     async fn openai_responses_chat(
         State(state): State<Arc<AppState>>,
-        request: Json<PromptRequest>,
+        request_as_text: String,
     ) -> Result<Json<CompletionResponse>, AppError> {
-        let mut request = request.0;
+        let request_as_value: Value = serde_json::from_str(&request_as_text).unwrap();
+        debug!(
+            "request_as_value:\n{}",
+            serde_json::to_string_pretty(&request_as_value).unwrap()
+        );
+
+        let request: PromptRequest = serde_json::from_value(request_as_value).unwrap();
 
         debug!(
             "original_openai_request:\n{}",

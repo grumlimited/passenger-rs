@@ -1,6 +1,7 @@
 use crate::copilot::{CopilotChatRequest, CopilotChatResponse, CopilotMessage};
-use crate::openai::completion::models::OpenAIChatRequest;
-use crate::openai::responses::models::prompt_request::Content::InputText;
+use crate::openai::completion::models::{
+    FunctionCall, OpenAIChatRequest, ToolCall as CompletionToolCall,
+};
 use crate::openai::responses::models::prompt_request::PromptRequest;
 use crate::openai::responses::models::prompt_response::{
     AdditionalParameters, AssistantContent, OutputFunctionCall, OutputMessage, OutputRole,
@@ -40,31 +41,53 @@ impl From<PromptRequest> for CopilotChatRequest {
     fn from(value: PromptRequest) -> Self {
         use crate::openai::completion::models::{FunctionDefinition, Tool as OpenAITool};
 
-        // Convert messages from PromptRequest format to CopilotMessage format
-        let mut messages: Vec<CopilotMessage> = value
+        let function_call_messages_tool_calls: Vec<CompletionToolCall> = value
             .input
             .iter()
-            .map(|m| {
-                // Extract text content from Content enum
-                let content = m
-                    .content
-                    .iter()
-                    .filter_map(|c| match c {
-                        InputText { text } => Some(text.clone()),
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-
-                CopilotMessage {
-                    role: m.role.clone(),
-                    content: Some(content),
-                    padding: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-                    name: None,
-                }
+            .filter(|message| matches!(&message.message_type, message_type if message_type == "function_call"))
+            .enumerate()
+            .map(|(id, message)| CompletionToolCall {
+                id: Some(format!("{}", id)),
+                tool_type: "function".to_string(),
+                function: FunctionCall {
+                    name: message
+                        .name
+                        .clone()
+                        .unwrap_or("SHOULD HAVE BEEN SET".to_string()),
+                    arguments: message
+                        .arguments
+                        .clone()
+                        .unwrap_or("SHOULD HAVE BEEN SET".to_string()),
+                },
             })
             .collect();
+
+        let function_call_message = CopilotMessage {
+            role: "assistant".to_string(),
+            content: None,
+            padding: None,
+            tool_calls: Some(function_call_messages_tool_calls),
+            tool_call_id: None,
+            name: None,
+        };
+
+        let mut function_call_output_messages: Vec<CopilotMessage> = value
+            .input
+            .iter()
+            .filter(|message| matches!(&message.message_type, message_type if message_type == "function_call_output"))
+            .zip(function_call_message.tool_calls.clone().unwrap_or(vec![]))
+            .enumerate()
+            .map(|(id, (message, tool_call))| CopilotMessage {
+                role: "tool".to_string(),
+                content: message.output.clone(),
+                padding: None,
+                tool_calls: None,
+                tool_call_id: Some(format!("{}", id)),
+                name: Some(tool_call.function.name.clone()),
+            })
+            .collect();
+
+        let mut messages: Vec<CopilotMessage> = vec![];
 
         // Add system message with instructions at the beginning
         messages.insert(
@@ -79,6 +102,10 @@ impl From<PromptRequest> for CopilotChatRequest {
             },
         );
 
+        messages.insert(1, function_call_message);
+
+        messages.append(&mut function_call_output_messages);
+
         // Convert tools from PromptRequest format to OpenAI Tool format
         let tools = if value.tools.is_empty() {
             None
@@ -87,20 +114,20 @@ impl From<PromptRequest> for CopilotChatRequest {
                 value
                     .tools
                     .iter()
-                    .map(|t| {
+                    .map(|tool| {
                         // Convert ToolParameters to JSON Value for FunctionDefinition
                         let parameters = serde_json::json!({
-                            "type": t.parameters.param_type,
-                            "properties": t.parameters.properties,
-                            "required": t.parameters.required,
-                            "additionalProperties": t.parameters.additional_properties,
+                            "type": tool.parameters.param_type,
+                            "properties": tool.parameters.properties,
+                            "required": tool.parameters.required,
+                            "additionalProperties": tool.parameters.additional_properties,
                         });
 
                         OpenAITool {
-                            tool_type: t.tool_type.clone(),
+                            tool_type: tool.tool_type.clone(),
                             function: FunctionDefinition {
-                                name: t.name.clone(),
-                                description: Some(t.description.clone()),
+                                name: tool.name.clone(),
+                                description: Some(tool.description.clone()),
                                 parameters,
                             },
                         }
@@ -216,6 +243,17 @@ mod tests {
     use super::*;
     use crate::openai::responses::models::prompt_request::PromptRequest;
     use serde_json;
+
+    #[test]
+    fn test_rig_openai_prompt_request_with_tools_result() {
+        let json = include_str!("../resources/rig_openai_prompt_request_with_tools_result.json");
+        let prompt_request: PromptRequest =
+            serde_json::from_str(json).expect("Failed to parse PromptRequest");
+
+        let copilot_request: CopilotChatRequest = prompt_request.into();
+        let str = serde_json::to_string_pretty(&copilot_request).unwrap();
+        println!("{}", str);
+    }
 
     #[test]
     fn test_prompt_request_to_copilot_chat_request() {

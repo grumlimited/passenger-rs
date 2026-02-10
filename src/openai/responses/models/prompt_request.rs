@@ -11,10 +11,13 @@ pub struct PromptRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
-    pub role: String,
+    pub role: Option<String>,
     #[serde(rename = "type")]
     pub message_type: String,
-    pub content: Vec<Content>,
+    pub content: Option<Vec<Content>>,
+    pub name: Option<String>,
+    pub arguments: Option<String>,
+    pub output: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

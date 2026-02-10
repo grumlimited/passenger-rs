@@ -238,15 +238,6 @@ pub struct OutputMessage {
     pub content: Vec<AssistantContent>,
 }
 
-/// The type of assistant content.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
-#[serde(untagged)]
-pub enum AssistantContentType {
-    Text(AssistantContent),
-    ToolCall(OutputFunctionCall),
-    Reasoning(OpenAIReasoning),
-}
-
 /// The model output format configuration.
 /// You can either have plain text by default, or attach a JSON schema for the purposes of structured outputs.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -332,15 +323,6 @@ pub enum OutputRole {
 pub enum AssistantContent {
     OutputText(Text),
     Refusal { refusal: String },
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
-pub struct OpenAIReasoning {
-    id: String,
-    pub summary: Vec<ReasoningSummary>,
-    pub encrypted_content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<ToolStatus>,
 }
 
 /// Basic text content.
