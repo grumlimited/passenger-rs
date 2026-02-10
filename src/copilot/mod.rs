@@ -22,7 +22,7 @@ pub struct CopilotChatRequest {
     pub tool_choice: Option<ToolChoice>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CopilotMessage {
     pub role: String,
     #[serde(skip_serializing_if = "Option::is_none")]

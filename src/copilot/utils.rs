@@ -71,11 +71,16 @@ impl From<PromptRequest> for CopilotChatRequest {
             name: None,
         };
 
+        let tool_calls = match function_call_message.tool_calls {
+            Some(ref tool_calls) => tool_calls.as_slice(),
+            _ => &[],
+        };
+
         let mut function_call_output_messages: Vec<CopilotMessage> = value
             .input
             .iter()
             .filter(|message| matches!(&message.message_type, message_type if message_type == "function_call_output"))
-            .zip(function_call_message.tool_calls.clone().unwrap_or(vec![]))
+            .zip(tool_calls)
             .enumerate()
             .map(|(id, (message, tool_call))| CopilotMessage {
                 role: "tool".to_string(),
