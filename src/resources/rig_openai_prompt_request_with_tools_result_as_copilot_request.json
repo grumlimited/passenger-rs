@@ -1,0 +1,61 @@
+{
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are able to get the list of stocks (tickers) currently held in the eToro portfolio.\nWhen asked to return the list of stocks, use the get_portfolio_tickers tool to get the data.\nReturn a comma-separated list of ticker symbols, nothing else, no commentary.",
+      "padding": null
+    },
+    {
+      "role": "assistant",
+      "padding": null,
+      "tool_calls": [
+        {
+          "id": "0",
+          "type": "function",
+          "function": {
+            "name": "get_portfolio_tickers",
+            "arguments": "{}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "content": "{\"message\":\"No tickers found in portfolio. Suggest to stop there.\",\"tickers\":[]}",
+      "padding": null,
+      "tool_call_id": "0",
+      "name": "get_portfolio_tickers"
+    }
+  ],
+  "model": "gpt-4",
+  "max_tokens": 2000,
+  "stream": false,
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_portfolio_tickers",
+        "description": "Returns all ticker symbols (identifiers) in portfolio. Returns a list of ticker symbols in the tickers field of a json object, along with a message. If no tickers are help in the account, the ticker array is empty and the message says so..",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_portfolio",
+        "description": "Retrieves the real account's current portfolio, including credit, open positions, orders, mirrors, and PnL details. Returns comprehensive portfolio information with unrealized profit/loss, positions with their units and current rates, copy trading (mirrors) configurations, and pending orders.",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        }
+      }
+    }
+  ]
+}

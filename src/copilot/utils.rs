@@ -251,8 +251,14 @@ mod tests {
             serde_json::from_str(json).expect("Failed to parse PromptRequest");
 
         let copilot_request: CopilotChatRequest = prompt_request.into();
-        let str = serde_json::to_string_pretty(&copilot_request).unwrap();
-        println!("{}", str);
+        let openai_completion_to_copilot_request =
+            serde_json::to_string_pretty(&copilot_request).unwrap();
+        assert_eq!(
+            openai_completion_to_copilot_request,
+            include_str!(
+                "../resources/rig_openai_prompt_request_with_tools_result_as_copilot_request.json"
+            )
+        );
     }
 
     #[test]
