@@ -294,8 +294,6 @@ mod tests {
         let openai_completion_to_copilot_request =
             serde_json::to_string_pretty(&copilot_request).unwrap();
 
-        println!("{}", openai_completion_to_copilot_request);
-
         assert_eq!(
             openai_completion_to_copilot_request,
             include_str!(
