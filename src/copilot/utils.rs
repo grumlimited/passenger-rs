@@ -40,7 +40,6 @@ impl From<OpenAIChatRequest> for CopilotChatRequest {
 
 impl From<PromptRequest> for CopilotChatRequest {
     fn from(value: PromptRequest) -> Self {
-
         use crate::openai::completion::models::{FunctionDefinition, Tool as OpenAITool};
 
         let mut messages: Vec<CopilotMessage> = vec![];
