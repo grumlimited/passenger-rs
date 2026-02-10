@@ -1,0 +1,74 @@
+{
+  "max_tokens": 500,
+  "messages": [
+    {
+      "content": "What's the weather like in San Francisco and New York? Use the get_weather tool.",
+      "role": "user"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "function": {
+            "arguments": "{\"location\": \"San Francisco\"}",
+            "name": "get_weather"
+          },
+          "id": "call_lO0QDBSiv8tvqvWth3YHg37e",
+          "type": "function"
+        },
+        {
+          "function": {
+            "arguments": "{\"location\": \"New York\"}",
+            "name": "get_weather"
+          },
+          "id": "call_8P2EHiq2bgZ4E4m6qssbhA2b",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "content": "{\"temperature\": 72, \"condition\": \"sunny\", \"location\": \"San Francisco\"}",
+      "name": "get_weather",
+      "role": "tool",
+      "tool_call_id": "call_lO0QDBSiv8tvqvWth3YHg37e"
+    },
+    {
+      "content": "{\"temperature\": 37, \"condition\": \"sunny\", \"location\": \"New York\"}",
+      "name": "get_weather",
+      "role": "tool",
+      "tool_call_id": "call_8P2EHiq2bgZ4E4m6qssbhA2b"
+    }
+  ],
+  "model": "gpt-4o",
+  "temperature": 0.7,
+  "tools": [
+    {
+      "function": {
+        "description": "Get the current weather for a specific location",
+        "name": "get_weather",
+        "parameters": {
+          "properties": {
+            "location": {
+              "description": "The city name, e.g. San Francisco",
+              "type": "string"
+            },
+            "unit": {
+              "description": "The temperature unit to use",
+              "enum": [
+                "celsius",
+                "fahrenheit"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "location"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    }
+  ]
+}

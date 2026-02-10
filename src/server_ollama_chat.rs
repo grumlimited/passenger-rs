@@ -1,7 +1,8 @@
+use crate::copilot::CopilotChatRequest;
+use crate::copilot::CopilotChatResponse;
+use crate::openai::completion::models::OpenAIChatRequest;
 use crate::server::{AppError, AppState, Server};
-use crate::server_chat_completion::{
-    CopilotChatRequest, CopilotChatResponse, CopilotMessage, OpenAIChatRequest,
-};
+use crate::server_copilot::CopilotIntegration;
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -57,7 +58,7 @@ pub struct OllamaFunction {
     pub arguments: String,
 }
 
-pub(crate) trait OllamaChatEndpoint {
+pub(crate) trait OllamaChatEndpoint: CopilotIntegration {
     async fn ollama_chat(
         state: State<Arc<AppState>>,
         request: Json<OpenAIChatRequest>,
@@ -82,26 +83,7 @@ impl OllamaChatEndpoint for Server {
         let token = Self::get_token(state.clone()).await?;
 
         // Transform OpenAI request to Copilot format
-        let copilot_request = CopilotChatRequest {
-            messages: request
-                .messages
-                .iter()
-                .map(|m| CopilotMessage {
-                    role: m.role.clone(),
-                    content: m.content.clone(),
-                    padding: None,
-                    tool_calls: m.tool_calls.clone(),
-                    tool_call_id: m.tool_call_id.clone(),
-                    name: m.name.clone(),
-                })
-                .collect(),
-            model: request.model.clone(),
-            temperature: request.temperature,
-            max_tokens: request.max_tokens,
-            stream: Some(request.stream),
-            tools: request.tools,
-            tool_choice: request.tool_choice,
-        };
+        let copilot_request: CopilotChatRequest = request.into();
 
         debug!(
             "copilot_request:\n{}",
@@ -111,34 +93,11 @@ impl OllamaChatEndpoint for Server {
         // Forward request to Copilot API
         let copilot_url = format!("{}/chat/completions", state.config.copilot.api_base_url);
 
-        let response = state
-            .client
-            .post(&copilot_url)
-            .header("Authorization", format!("Bearer {}", token.token))
-            .header("Copilot-Integration-Id", "vscode-chat")
-            .header("Content-Type", "application/json")
-            .json(&copilot_request)
-            .send()
-            .await
-            .map_err(|e| {
-                error!("Failed to send request to Copilot API: {}", e);
-                AppError::InternalServerError(format!(
-                    "Failed to communicate with Copilot API: {}",
-                    e
-                ))
-            })?;
+        let response = Self::forward_prompt(state, token, copilot_url, &copilot_request).await?;
 
         let status = response.status();
         if !status.is_success() {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            error!("Copilot API returned error: {} - {}", status, error_text);
-            return Err(AppError::InternalServerError(format!(
-                "Copilot API error: {} - {}",
-                status, error_text
-            )));
+            return Self::handle_errors(response).await;
         }
 
         let copilot_response: CopilotChatResponse = response.json().await.map_err(|e| {
@@ -152,8 +111,7 @@ impl OllamaChatEndpoint for Server {
         );
 
         // Transform Copilot response to Ollama format
-        let ollama_response =
-            transform_to_ollama_response(&copilot_request, copilot_response, request.model)?;
+        let ollama_response = transform_to_ollama_response(&copilot_request, copilot_response)?;
 
         info!("Successfully processed Ollama chat request");
 
@@ -165,7 +123,6 @@ impl OllamaChatEndpoint for Server {
 fn transform_to_ollama_response(
     copilot_request: &CopilotChatRequest,
     copilot: CopilotChatResponse,
-    model: String,
 ) -> Result<OllamaChatResponse, AppError> {
     let choice = copilot.choices.first().ok_or_else(|| {
         AppError::InternalServerError("No choices in Copilot response".to_string())
@@ -221,7 +178,7 @@ fn transform_to_ollama_response(
     });
 
     Ok(OllamaChatResponse {
-        model,
+        model: copilot_request.model.clone(),
         created_at,
         message: OllamaMessage {
             role: choice.message.role.clone(),
@@ -244,7 +201,10 @@ fn transform_to_ollama_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server_chat_completion::{CopilotChoice, CopilotUsage, FunctionDefinition, Tool};
+    use crate::copilot::CopilotMessage;
+    use crate::openai::completion::models::FunctionDefinition;
+    use crate::openai::completion::models::{OpenAIChatRequest, Tool};
+    use crate::server_chat_completion::{CopilotChoice, CopilotUsage};
 
     #[test]
     fn test_openai_chat_request_multiple_tools_normalize() {
@@ -297,7 +257,7 @@ mod tests {
                 tool_call_id: None,
                 name: None,
             }],
-            model: "model".to_string(),
+            model: "gpt-4".to_string(),
             temperature: None,
             max_tokens: None,
             stream: None,
@@ -335,8 +295,7 @@ mod tests {
             }),
         };
 
-        let result =
-            transform_to_ollama_response(&copilot_request, copilot_response, "gpt-4".to_string());
+        let result = transform_to_ollama_response(&copilot_request, copilot_response);
         assert!(result.is_ok(), "Failed to transform: {:?}", result.err());
 
         let ollama = result.unwrap();
@@ -394,8 +353,7 @@ mod tests {
             usage: None,
         };
 
-        let result =
-            transform_to_ollama_response(&copilot_request, copilot_response, "gpt-4".to_string());
+        let result = transform_to_ollama_response(&copilot_request, copilot_response);
         assert!(result.is_ok());
 
         let ollama = result.unwrap();

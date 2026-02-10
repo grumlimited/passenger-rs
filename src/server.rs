@@ -4,6 +4,7 @@ use crate::config::Config;
 use crate::server_chat_completion::*;
 use crate::server_list_models::*;
 use crate::server_ollama_chat::*;
+use crate::server_openai_responses_chat::*;
 use crate::{server, token_manager};
 use axum::{
     http::StatusCode,
@@ -78,6 +79,7 @@ impl Server {
             .route("/v1/chat/completions", post(Self::chat_completions))
             .route("/v1/api/chat", post(Self::ollama_chat))
             .route("/v1/models", get(Self::list_models))
+            .route("/v1/responses", post(Self::openai_responses_chat))
             .route("/health", get(health_check))
             .with_state(state)
     }

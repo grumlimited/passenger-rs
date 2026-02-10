@@ -1,0 +1,43 @@
+{
+  "input": [
+    {
+      "role": "user",
+      "type": "message",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Extract the ticker symbols from the results returned by your get_portfolio_tickers tool. Return a comma-separated list of up to 100 ticker symbols, nothing else, no commentary."
+        }
+      ]
+    }
+  ],
+  "model": "claude-sonnet-4.5",
+  "instructions": "You are able to get the list of stocks (tickers) currently held in the eToro portfolio.\nWhen asked to return the list of stocks, use the get_portfolio_tickers tool to get the data.\nReturn a comma-separated list of ticker symbols, nothing else, no commentary.",
+  "max_output_tokens": 2000,
+  "tools": [
+    {
+      "name": "get_portfolio_tickers",
+      "parameters": {
+        "properties": {},
+        "type": "object",
+        "additionalProperties": false,
+        "required": []
+      },
+      "strict": true,
+      "type": "function",
+      "description": "Returns all ticker symbols (identifiers) in portfolio. Returns a list of ticker symbols in the tickers field of a json object, along with a message. If no tickers are help in the account, the ticker array is empty and the message says so.."
+    },
+    {
+      "name": "get_portfolio",
+      "parameters": {
+        "properties": {},
+        "type": "object",
+        "additionalProperties": false,
+        "required": []
+      },
+      "strict": true,
+      "type": "function",
+      "description": "Retrieves the real account's current portfolio, including credit, open positions, orders, mirrors, and PnL details. Returns comprehensive portfolio information with unrealized profit/loss, positions with their units and current rates, copy trading (mirrors) configurations, and pending orders."
+    }
+  ]
+}
