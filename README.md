@@ -8,14 +8,34 @@ A high-performance Rust-based proxy server that converts GitHub Copilot into Ope
 
 ## 💡 Use Case: Rig Integration
 
-This project enables using GitHub Copilot models with [Rig](https://github.com/0xPlaygrounds/rig) and other Ollama-compatible frameworks:
+This project enables using GitHub Copilot models with [Rig](https://github.com/0xPlaygrounds/rig) and other Ollama-compatible and OpenAI-compatible frameworks:
 
 ```rust
 use rig::providers::ollama;
 
 let client: Client<OllamaExt> = ollama::Client::builder()
-    .base_url("http://127.0.0.1:8081/v1")
-    .build()?;
+.api_key(Nothing)
+.base_url("http://127.0.0.1:8081/v1")
+.build()?;
+
+let model = client.completion_model("claude-sonnet-4.5");
+
+let agent = AgentBuilder::new(model)
+    .preamble("You're an AI assistant powered by GitHub Copilot")
+    .name("copilot-agent")
+    .max_tokens(2000)
+    .build();
+```
+
+or
+
+```rust
+use rig::providers::ollama;
+
+let client: Client<OpenAIResponsesExt> = openai::Client::builder()
+.api_key("no key")
+.base_url("http://127.0.0.1:8081")
+.build()?;
 
 let model = client.completion_model("claude-sonnet-4.5");
 
