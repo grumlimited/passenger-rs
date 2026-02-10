@@ -22,6 +22,12 @@ impl OpenAiResponsesEndpoint for Server {
         State(state): State<Arc<AppState>>,
         request_as_text: String,
     ) -> Result<Json<CompletionResponse>, AppError> {
+        /*
+         * We are not destructuring directly into a Json<PromptRequest> because the openai request
+         * coming from Rig contains 2 "role" key within the input["role" == "user"].
+         * It is causing serde to fail on doing serde_json::from_str::<PromptRequest>(&request_as_text), yet
+         * it is somewhat more laxist when parsing it into a json_serde::Value.
+         */
         let request_as_value: Value = serde_json::from_str(&request_as_text).unwrap();
         debug!(
             "request_as_value:\n{}",
