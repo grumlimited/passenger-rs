@@ -79,8 +79,8 @@ impl Server {
             .route("/v1/chat/completions", post(Self::chat_completions))
             .route("/v1/api/chat", post(Self::ollama_chat))
             .route("/v1/models", get(Self::list_models))
+            .route("/v1/responses", post(Self::openai_responses_chat))
             .route("/health", get(health_check))
-            .route("/responses", post(Self::openai_responses_chat))
             .with_state(state)
     }
 

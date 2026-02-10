@@ -34,7 +34,7 @@ use rig::providers::ollama;
 
 let client: Client<OpenAIResponsesExt> = openai::Client::builder()
 .api_key("no key")
-.base_url("http://127.0.0.1:8081")
+.base_url("http://127.0.0.1:8081/v1")
 .build()?;
 
 let model = client.completion_model("claude-sonnet-4.5");
