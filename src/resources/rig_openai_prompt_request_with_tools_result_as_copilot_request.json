@@ -6,6 +6,11 @@
       "padding": null
     },
     {
+      "role": "user",
+      "content": "Extract the ticker symbols from the results returned by your get_portfolio_tickers tool. Return a comma-separated list of up to 100 ticker symbols, nothing else, no commentary.",
+      "padding": null
+    },
+    {
       "role": "assistant",
       "padding": null,
       "tool_calls": [

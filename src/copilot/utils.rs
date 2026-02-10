@@ -2,6 +2,7 @@ use crate::copilot::{CopilotChatRequest, CopilotChatResponse, CopilotMessage};
 use crate::openai::completion::models::{
     FunctionCall, OpenAIChatRequest, ToolCall as CompletionToolCall,
 };
+use crate::openai::responses::models::prompt_request::Content::InputText;
 use crate::openai::responses::models::prompt_request::PromptRequest;
 use crate::openai::responses::models::prompt_response::{
     AdditionalParameters, AssistantContent, OutputFunctionCall, OutputMessage, OutputRole,
@@ -39,8 +40,56 @@ impl From<OpenAIChatRequest> for CopilotChatRequest {
 
 impl From<PromptRequest> for CopilotChatRequest {
     fn from(value: PromptRequest) -> Self {
+
         use crate::openai::completion::models::{FunctionDefinition, Tool as OpenAITool};
 
+        let mut messages: Vec<CopilotMessage> = vec![];
+
+        // Add a system message with instructions at the beginning
+        messages.insert(
+            0,
+            CopilotMessage {
+                role: "system".to_string(),
+                content: Some(value.instructions),
+                padding: None,
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            },
+        );
+
+        let mut users = value
+            .input
+            .iter()
+            .filter(|message| matches!(&message.role, role if role == &Some("user".to_string())))
+            .map(|message| {
+                let content = match &message.content {
+                    Some(contents) => contents
+                        .iter()
+                        .map(|e| match e {
+                            InputText { text } => text.clone(),
+                        })
+                        .collect::<Vec<String>>()
+                        .join("\n"),
+                    _ => "".to_string(),
+                };
+
+                CopilotMessage {
+                    role: "user".to_string(),
+                    content: Some(content),
+                    padding: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                    name: None,
+                }
+            })
+            .collect::<Vec<CopilotMessage>>();
+
+        messages.append(&mut users);
+
+        /*
+         * If empty, then it will be a condition to also not add an "assistant" section to the built up copilot request
+         */
         let function_call_messages_tool_calls: Vec<CompletionToolCall> = value
             .input
             .iter()
@@ -62,54 +111,40 @@ impl From<PromptRequest> for CopilotChatRequest {
             })
             .collect();
 
-        let function_call_message = CopilotMessage {
-            role: "assistant".to_string(),
-            content: None,
-            padding: None,
-            tool_calls: Some(function_call_messages_tool_calls),
-            tool_call_id: None,
-            name: None,
-        };
-
-        let tool_calls = match function_call_message.tool_calls {
-            Some(ref tool_calls) => tool_calls.as_slice(),
-            _ => &[],
-        };
-
-        let mut function_call_output_messages: Vec<CopilotMessage> = value
-            .input
-            .iter()
-            .filter(|message| matches!(&message.message_type, message_type if message_type == "function_call_output"))
-            .zip(tool_calls)
-            .enumerate()
-            .map(|(id, (message, tool_call))| CopilotMessage {
-                role: "tool".to_string(),
-                content: message.output.clone(),
+        if !function_call_messages_tool_calls.is_empty() {
+            let function_call_message = CopilotMessage {
+                role: "assistant".to_string(),
+                content: None,
                 padding: None,
-                tool_calls: None,
-                tool_call_id: Some(format!("{}", id)),
-                name: Some(tool_call.function.name.clone()),
-            })
-            .collect();
-
-        let mut messages: Vec<CopilotMessage> = vec![];
-
-        // Add system message with instructions at the beginning
-        messages.insert(
-            0,
-            CopilotMessage {
-                role: "system".to_string(),
-                content: Some(value.instructions),
-                padding: None,
-                tool_calls: None,
+                tool_calls: Some(function_call_messages_tool_calls),
                 tool_call_id: None,
                 name: None,
-            },
-        );
+            };
 
-        messages.insert(1, function_call_message);
+            let tool_calls = match function_call_message.tool_calls {
+                Some(ref tool_calls) => tool_calls.as_slice(),
+                _ => &[],
+            };
 
-        messages.append(&mut function_call_output_messages);
+            let mut function_call_output_messages: Vec<CopilotMessage> = value
+                .input
+                .iter()
+                .filter(|message| matches!(&message.message_type, message_type if message_type == "function_call_output"))
+                .zip(tool_calls)
+                .enumerate()
+                .map(|(id, (message, tool_call))| CopilotMessage {
+                    role: "tool".to_string(),
+                    content: message.output.clone(),
+                    padding: None,
+                    tool_calls: None,
+                    tool_call_id: Some(format!("{}", id)),
+                    name: Some(tool_call.function.name.clone()),
+                })
+                .collect();
+
+            messages.insert(messages.len(), function_call_message);
+            messages.append(&mut function_call_output_messages);
+        }
 
         // Convert tools from PromptRequest format to OpenAI Tool format
         let tools = if value.tools.is_empty() {
@@ -258,6 +293,9 @@ mod tests {
         let copilot_request: CopilotChatRequest = prompt_request.into();
         let openai_completion_to_copilot_request =
             serde_json::to_string_pretty(&copilot_request).unwrap();
+
+        println!("{}", openai_completion_to_copilot_request);
+
         assert_eq!(
             openai_completion_to_copilot_request,
             include_str!(
