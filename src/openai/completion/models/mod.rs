@@ -1,5 +1,8 @@
 mod utils;
 
+/**
+* Largely a knock-off from Rig's own OpenAI completion model. Thank you.
+*/
 use serde::{Deserialize, Serialize};
 
 /// OpenAI-compatible chat completion request
