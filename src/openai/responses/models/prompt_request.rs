@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 pub struct PromptRequest {
     pub input: Vec<Message>,
     pub model: String,
-    pub instructions: String,
+    pub instructions: Option<String>,
     pub max_output_tokens: u32,
+    #[serde(default = "default_tools")]
     pub tools: Vec<Tool>,
 }
 
@@ -45,4 +46,8 @@ pub struct ToolParameters {
     #[serde(rename = "additionalProperties")]
     pub additional_properties: bool,
     pub required: Vec<String>,
+}
+
+fn default_tools() -> Vec<Tool> {
+    vec![]
 }

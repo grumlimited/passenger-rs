@@ -45,17 +45,48 @@ impl From<PromptRequest> for CopilotChatRequest {
         let mut messages: Vec<CopilotMessage> = vec![];
 
         // Add a system message with instructions at the beginning
-        messages.insert(
-            0,
-            CopilotMessage {
-                role: "system".to_string(),
-                content: Some(value.instructions),
-                padding: None,
-                tool_calls: None,
-                tool_call_id: None,
-                name: None,
-            },
-        );
+        if let Some(instructions) = &value.instructions {
+            messages.insert(
+                0,
+                CopilotMessage {
+                    role: "system".to_string(),
+                    content: Some(instructions.to_string()),
+                    padding: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                    name: None,
+                },
+            );
+        }
+
+        let mut systems = value
+            .input
+            .iter()
+            .filter(|message| matches!(&message.role, role if role == &Some("system".to_string())))
+            .map(|message| {
+                let content = match &message.content {
+                    Some(contents) => contents
+                        .iter()
+                        .map(|e| match e {
+                            InputText { text } => text.clone(),
+                        })
+                        .collect::<Vec<String>>()
+                        .join("\n"),
+                    _ => "".to_string(),
+                };
+
+                CopilotMessage {
+                    role: "system".to_string(),
+                    content: Some(content),
+                    padding: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                    name: None,
+                }
+            })
+            .collect::<Vec<CopilotMessage>>();
+
+        messages.append(&mut systems);
 
         let mut users = value
             .input
@@ -192,27 +223,30 @@ impl From<CopilotChatResponse> for CompletionResponse {
         // usage mapping
         let usage = resp.usage.map(ResponsesUsage::from);
         // output mapping
-        let output = resp
+        let output: Vec<Output> = resp
             .choices
             .iter()
             .enumerate()
-            .map(|(i, choice)| {
+            .flat_map(|(i, choice)| {
                 let msg = &choice.message;
                 // If there are tool_calls, produce FunctionCall, else Message
                 if let Some(tool_calls) = &msg.tool_calls {
-                    // Take the first tool_call for mapping
-                    let tc = &tool_calls[0];
-                    Output::FunctionCall(OutputFunctionCall {
-                        id: tc.id.clone().unwrap_or_default(),
-                        arguments: tc.function.arguments.clone(),
-                        // arguments: serde_json::from_str(&tc.function.arguments).unwrap_or_default(),
-                        call_id: msg.tool_call_id.clone().unwrap_or_default(),
-                        name: tc.function.name.clone(),
-                        status: ToolStatus::Completed,
-                    })
+                    tool_calls
+                        .iter()
+                        .map(|tc| {
+                            Output::FunctionCall(OutputFunctionCall {
+                                id: tc.id.clone().unwrap_or_default(),
+                                arguments: tc.function.arguments.clone(),
+                                // arguments: serde_json::from_str(&tc.function.arguments).unwrap_or_default(),
+                                call_id: msg.tool_call_id.clone().unwrap_or_default(),
+                                name: tc.function.name.clone(),
+                                status: ToolStatus::Completed,
+                            })
+                        })
+                        .collect()
                 } else {
                     // Reasoning: if role is assistant and content is present, treat as Message, else Reasoning variant
-                    Output::Message(OutputMessage {
+                    vec![Output::Message(OutputMessage {
                         id: format!("{}-{}", resp.id, i),
                         role: OutputRole::Assistant,
                         status: ResponseStatus::Completed,
@@ -224,7 +258,7 @@ impl From<CopilotChatResponse> for CompletionResponse {
                                 refusal: "No content".to_string(),
                             },
                         }],
-                    })
+                    })]
                 }
             })
             .collect();
@@ -282,6 +316,67 @@ mod tests {
     use super::*;
     use crate::openai::responses::models::prompt_request::PromptRequest;
     use serde_json;
+
+    #[test]
+    fn test_rig_openai_prompt_request_with_tools_response() {
+        // Load Copilot response with multiple tool calls
+        let json = include_str!("../resources/copilot_response_with_tools_to_call.json");
+        let copilot_response: CopilotChatResponse =
+            serde_json::from_str(json).expect("Failed to parse CopilotChatResponse");
+
+        // Convert to CompletionResponse
+        let completion_response: CompletionResponse = copilot_response.into();
+
+        // Verify basic response fields
+        assert_eq!(
+            completion_response.id,
+            "chatcmpl-DAFv6VDGjKiGUBQeDmDT6aytNDDjb"
+        );
+        assert_eq!(completion_response.model, "gpt-4.1-2025-04-14");
+        assert_eq!(completion_response.status, ResponseStatus::Completed);
+
+        // Verify usage was mapped correctly
+        let usage = completion_response.usage.expect("Usage should be present");
+        assert_eq!(usage.input_tokens, 1154);
+        assert_eq!(usage.output_tokens, 63);
+        assert_eq!(usage.total_tokens, 1217);
+
+        // Verify all 3 tool calls are present in output
+        assert_eq!(completion_response.output.len(), 3);
+
+        // Verify first tool call
+        match &completion_response.output[0] {
+            Output::FunctionCall(fc) => {
+                assert_eq!(fc.id, "call_AwV6FFjQCnEGwgLuCHobGnT6");
+                assert_eq!(fc.name, "global_quote");
+                assert_eq!(fc.arguments, "{\"ticker\": \"IBM\"}");
+                assert_eq!(fc.status, ToolStatus::Completed);
+            }
+            _ => panic!("Expected FunctionCall output"),
+        }
+
+        // Verify second tool call
+        match &completion_response.output[1] {
+            Output::FunctionCall(fc) => {
+                assert_eq!(fc.id, "call_Ll8ldZa8wGewSFi9tlMZFd0h");
+                assert_eq!(fc.name, "time_series_intra_day");
+                assert_eq!(fc.arguments, "{\"ticker\": \"IBM\"}");
+                assert_eq!(fc.status, ToolStatus::Completed);
+            }
+            _ => panic!("Expected FunctionCall output"),
+        }
+
+        // Verify third tool call
+        match &completion_response.output[2] {
+            Output::FunctionCall(fc) => {
+                assert_eq!(fc.id, "call_aqttpBAOPHYtoDiWOkUVsUPf");
+                assert_eq!(fc.name, "top_gainers_losers");
+                assert_eq!(fc.arguments, "{}");
+                assert_eq!(fc.status, ToolStatus::Completed);
+            }
+            _ => panic!("Expected FunctionCall output"),
+        }
+    }
 
     #[test]
     fn test_rig_openai_prompt_request_with_tools_result() {

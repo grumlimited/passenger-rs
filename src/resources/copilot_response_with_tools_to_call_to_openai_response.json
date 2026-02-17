@@ -1,0 +1,56 @@
+{
+  "id": "chatcmpl-DAFv6VDGjKiGUBQeDmDT6aytNDDjb",
+  "object": "response",
+  "created_at": 0,
+  "status": "completed",
+  "error": null,
+  "incomplete_details": null,
+  "instructions": null,
+  "max_output_tokens": null,
+  "model": "gpt-4.1-2025-04-14",
+  "usage": {
+    "input_tokens": 1154,
+    "output_tokens": 63,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 1217
+  },
+  "output": [
+    {
+      "type": "function_call",
+      "id": "call_AwV6FFjQCnEGwgLuCHobGnT6",
+      "arguments": "{\"ticker\": \"IBM\"}",
+      "call_id": "",
+      "name": "global_quote",
+      "status": "completed"
+    }
+  ],
+  "tools": [
+    {
+      "name": "global_quote",
+      "parameters": {
+        "ticker": "IBM"
+      },
+      "strict": true,
+      "type": "function",
+      "description": ""
+    },
+    {
+      "name": "time_series_intra_day",
+      "parameters": {
+        "ticker": "IBM"
+      },
+      "strict": true,
+      "type": "function",
+      "description": ""
+    },
+    {
+      "name": "top_gainers_losers",
+      "parameters": {},
+      "strict": true,
+      "type": "function",
+      "description": ""
+    }
+  ]
+}
