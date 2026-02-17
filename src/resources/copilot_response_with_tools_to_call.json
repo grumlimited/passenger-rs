@@ -1,0 +1,46 @@
+{
+  "id": "chatcmpl-DAFv6VDGjKiGUBQeDmDT6aytNDDjb",
+  "created": null,
+  "model": "gpt-4.1-2025-04-14",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "padding": "abcdefghijklmnopqrstuvwxyz0123456",
+        "tool_calls": [
+          {
+            "id": "call_AwV6FFjQCnEGwgLuCHobGnT6",
+            "type": "function",
+            "function": {
+              "name": "global_quote",
+              "arguments": "{\"ticker\": \"IBM\"}"
+            }
+          },
+          {
+            "id": "call_Ll8ldZa8wGewSFi9tlMZFd0h",
+            "type": "function",
+            "function": {
+              "name": "time_series_intra_day",
+              "arguments": "{\"ticker\": \"IBM\"}"
+            }
+          },
+          {
+            "id": "call_aqttpBAOPHYtoDiWOkUVsUPf",
+            "type": "function",
+            "function": {
+              "name": "top_gainers_losers",
+              "arguments": "{}"
+            }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1154,
+    "completion_tokens": 63,
+    "total_tokens": 1217
+  }
+}

@@ -45,17 +45,48 @@ impl From<PromptRequest> for CopilotChatRequest {
         let mut messages: Vec<CopilotMessage> = vec![];
 
         // Add a system message with instructions at the beginning
-        messages.insert(
-            0,
-            CopilotMessage {
-                role: "system".to_string(),
-                content: Some(value.instructions),
-                padding: None,
-                tool_calls: None,
-                tool_call_id: None,
-                name: None,
-            },
-        );
+        if let Some(instructions) = &value.instructions {
+            messages.insert(
+                0,
+                CopilotMessage {
+                    role: "system".to_string(),
+                    content: Some(instructions.to_string()),
+                    padding: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                    name: None,
+                },
+            );
+        }
+
+        let mut systems = value
+            .input
+            .iter()
+            .filter(|message| matches!(&message.role, role if role == &Some("system".to_string())))
+            .map(|message| {
+                let content = match &message.content {
+                    Some(contents) => contents
+                        .iter()
+                        .map(|e| match e {
+                            InputText { text } => text.clone(),
+                        })
+                        .collect::<Vec<String>>()
+                        .join("\n"),
+                    _ => "".to_string(),
+                };
+
+                CopilotMessage {
+                    role: "system".to_string(),
+                    content: Some(content),
+                    padding: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                    name: None,
+                }
+            })
+            .collect::<Vec<CopilotMessage>>();
+
+        messages.append(&mut systems);
 
         let mut users = value
             .input
@@ -192,27 +223,30 @@ impl From<CopilotChatResponse> for CompletionResponse {
         // usage mapping
         let usage = resp.usage.map(ResponsesUsage::from);
         // output mapping
-        let output = resp
+        let output: Vec<Output> = resp
             .choices
             .iter()
             .enumerate()
-            .map(|(i, choice)| {
+            .flat_map(|(i, choice)| {
                 let msg = &choice.message;
                 // If there are tool_calls, produce FunctionCall, else Message
                 if let Some(tool_calls) = &msg.tool_calls {
-                    // Take the first tool_call for mapping
-                    let tc = &tool_calls[0];
-                    Output::FunctionCall(OutputFunctionCall {
-                        id: tc.id.clone().unwrap_or_default(),
-                        arguments: tc.function.arguments.clone(),
-                        // arguments: serde_json::from_str(&tc.function.arguments).unwrap_or_default(),
-                        call_id: msg.tool_call_id.clone().unwrap_or_default(),
-                        name: tc.function.name.clone(),
-                        status: ToolStatus::Completed,
-                    })
+                    tool_calls
+                        .iter()
+                        .map(|tc| {
+                            Output::FunctionCall(OutputFunctionCall {
+                                id: tc.id.clone().unwrap_or_default(),
+                                arguments: tc.function.arguments.clone(),
+                                // arguments: serde_json::from_str(&tc.function.arguments).unwrap_or_default(),
+                                call_id: msg.tool_call_id.clone().unwrap_or_default(),
+                                name: tc.function.name.clone(),
+                                status: ToolStatus::Completed,
+                            })
+                        })
+                        .collect()
                 } else {
                     // Reasoning: if role is assistant and content is present, treat as Message, else Reasoning variant
-                    Output::Message(OutputMessage {
+                    vec![Output::Message(OutputMessage {
                         id: format!("{}-{}", resp.id, i),
                         role: OutputRole::Assistant,
                         status: ResponseStatus::Completed,
@@ -224,7 +258,7 @@ impl From<CopilotChatResponse> for CompletionResponse {
                                 refusal: "No content".to_string(),
                             },
                         }],
-                    })
+                    })]
                 }
             })
             .collect();
@@ -282,6 +316,19 @@ mod tests {
     use super::*;
     use crate::openai::responses::models::prompt_request::PromptRequest;
     use serde_json;
+
+    #[test]
+    fn test_rig_openai_prompt_request_with_tools_response() {
+        let json = include_str!("../resources/copilot_response_with_tools_to_call.json");
+        let copilot_response: CopilotChatResponse =
+            serde_json::from_str(json).expect("Failed to parse CopilotChatResponse");
+
+        let completion_response: CompletionResponse = copilot_response.into();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&completion_response).unwrap()
+        );
+    }
 
     #[test]
     fn test_rig_openai_prompt_request_with_tools_result() {
