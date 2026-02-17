@@ -319,15 +319,63 @@ mod tests {
 
     #[test]
     fn test_rig_openai_prompt_request_with_tools_response() {
+        // Load Copilot response with multiple tool calls
         let json = include_str!("../resources/copilot_response_with_tools_to_call.json");
         let copilot_response: CopilotChatResponse =
             serde_json::from_str(json).expect("Failed to parse CopilotChatResponse");
 
+        // Convert to CompletionResponse
         let completion_response: CompletionResponse = copilot_response.into();
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&completion_response).unwrap()
+
+        // Verify basic response fields
+        assert_eq!(
+            completion_response.id,
+            "chatcmpl-DAFv6VDGjKiGUBQeDmDT6aytNDDjb"
         );
+        assert_eq!(completion_response.model, "gpt-4.1-2025-04-14");
+        assert_eq!(completion_response.status, ResponseStatus::Completed);
+
+        // Verify usage was mapped correctly
+        let usage = completion_response.usage.expect("Usage should be present");
+        assert_eq!(usage.input_tokens, 1154);
+        assert_eq!(usage.output_tokens, 63);
+        assert_eq!(usage.total_tokens, 1217);
+
+        // Verify all 3 tool calls are present in output
+        assert_eq!(completion_response.output.len(), 3);
+
+        // Verify first tool call
+        match &completion_response.output[0] {
+            Output::FunctionCall(fc) => {
+                assert_eq!(fc.id, "call_AwV6FFjQCnEGwgLuCHobGnT6");
+                assert_eq!(fc.name, "global_quote");
+                assert_eq!(fc.arguments, "{\"ticker\": \"IBM\"}");
+                assert_eq!(fc.status, ToolStatus::Completed);
+            }
+            _ => panic!("Expected FunctionCall output"),
+        }
+
+        // Verify second tool call
+        match &completion_response.output[1] {
+            Output::FunctionCall(fc) => {
+                assert_eq!(fc.id, "call_Ll8ldZa8wGewSFi9tlMZFd0h");
+                assert_eq!(fc.name, "time_series_intra_day");
+                assert_eq!(fc.arguments, "{\"ticker\": \"IBM\"}");
+                assert_eq!(fc.status, ToolStatus::Completed);
+            }
+            _ => panic!("Expected FunctionCall output"),
+        }
+
+        // Verify third tool call
+        match &completion_response.output[2] {
+            Output::FunctionCall(fc) => {
+                assert_eq!(fc.id, "call_aqttpBAOPHYtoDiWOkUVsUPf");
+                assert_eq!(fc.name, "top_gainers_losers");
+                assert_eq!(fc.arguments, "{}");
+                assert_eq!(fc.status, ToolStatus::Completed);
+            }
+            _ => panic!("Expected FunctionCall output"),
+        }
     }
 
     #[test]
