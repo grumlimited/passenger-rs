@@ -222,42 +222,6 @@ pub async fn poll_for_access_token(
 ///
 /// # Returns
 /// Copilot token response with token, expiration, and refresh time
-///
-/// # Example
-/// ```no_run
-/// use passenger_rs::auth::{request_device_code, poll_for_access_token, get_copilot_token};
-/// use reqwest::Client;
-///
-/// #[tokio::main]
-/// async fn main() -> anyhow::Result<()> {
-///     let client = Client::new();
-///     
-///     // Get device code and access token first...
-///     let device_resp = request_device_code(
-///         &client,
-///         "https://github.com/login/device/code",
-///         "Iv1.b507a08c87ecfe98"
-///     ).await?;
-///     
-///     let access_token_resp = poll_for_access_token(
-///         &client,
-///         "https://github.com/login/oauth/access_token",
-///         "Iv1.b507a08c87ecfe98",
-///         &device_resp.device_code,
-///         device_resp.interval,
-///     ).await?;
-///     
-///     // Get Copilot token
-///     let copilot_token = get_copilot_token(
-///         &client,
-///         "https://api.github.com/copilot_internal/v2/token",
-///         &access_token_resp.access_token,
-///     ).await?;
-///     
-///     println!("Copilot token: {}", copilot_token.token);
-///     Ok(())
-/// }
-/// ```
 pub async fn get_copilot_token(
     client: &Client,
     copilot_token_url: &str,
