@@ -1,7 +1,7 @@
 use crate::copilot::models::CopilotModelsResponse;
 use crate::openai::completion::models::OpenAIModelsResponse;
 use crate::server::{AppError, AppState, Server};
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 use std::sync::Arc;
 use tracing::log::{error, info};
 

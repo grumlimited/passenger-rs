@@ -3,7 +3,7 @@ use crate::copilot::CopilotChatResponse;
 use crate::openai::completion::models::OpenAIChatRequest;
 use crate::server::{AppError, AppState, Server};
 use crate::server_copilot::CopilotIntegration;
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::debug;
@@ -211,19 +211,21 @@ mod tests {
         let json = include_str!("resources/rig_ollama_request_multiple_tools.json");
         let mut json: OpenAIChatRequest = serde_json::from_str(json).unwrap();
 
-        assert!(json
-            .messages
-            .iter()
-            .filter(|m| m.role == "tool")
-            .all(|m| m.tool_call_id.is_none()));
+        assert!(
+            json.messages
+                .iter()
+                .filter(|m| m.role == "tool")
+                .all(|m| m.tool_call_id.is_none())
+        );
 
         json.prepare_for_copilot();
 
-        assert!(json
-            .messages
-            .iter()
-            .filter(|m| m.role == "tool")
-            .all(|m| m.name.is_some() && m.tool_call_id.is_some()));
+        assert!(
+            json.messages
+                .iter()
+                .filter(|m| m.role == "tool")
+                .all(|m| m.name.is_some() && m.tool_call_id.is_some())
+        );
     }
 
     #[test]
@@ -231,19 +233,21 @@ mod tests {
         let json = include_str!("resources/rig_ollama_request.json");
         let mut json: OpenAIChatRequest = serde_json::from_str(json).unwrap();
 
-        assert!(json
-            .messages
-            .iter()
-            .filter(|m| m.role == "tool")
-            .all(|m| m.tool_call_id.is_none()));
+        assert!(
+            json.messages
+                .iter()
+                .filter(|m| m.role == "tool")
+                .all(|m| m.tool_call_id.is_none())
+        );
 
         json.prepare_for_copilot();
 
-        assert!(json
-            .messages
-            .iter()
-            .filter(|m| m.role == "tool")
-            .all(|m| m.name.is_some() && m.tool_call_id.is_some()));
+        assert!(
+            json.messages
+                .iter()
+                .filter(|m| m.role == "tool")
+                .all(|m| m.name.is_some() && m.tool_call_id.is_some())
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
 [package]
 name = "passenger-rs"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 license = "GPL-3.0"
 description = "A high-performance Rust-based proxy server that converts GitHub Copilot into an OpenAI-compatible API"
 repository = "https://github.com/grumlimited/passenger-rs"
@@ -10,17 +10,18 @@ categories = ["web-programming", "api-bindings"]
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
-tokio-util = "0.7.18"
-reqwest = { version = "0.11", features = ["stream", "gzip", "brotli", "deflate", "json"] }
+tokio-util = "0.7"
+reqwest = { version = "0.13", features = ["stream", "gzip", "brotli", "deflate", "json"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
-toml = "0.8"
+toml = "1"
 clap = { version = "4.5", features = ["derive"] }
 indicatif = "0.18"
 axum = { version = "0.8.8", features = ["default", "macros"] }
 chrono = "0.4"
+crossterm = "0.29"
 [dev-dependencies]
 wiremock = "0.6"

@@ -16,7 +16,7 @@ mod token_manager;
 use crate::clap::Args;
 use crate::server::Server;
 use anyhow::Result;
-use tracing::{info, Level};
+use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
 
 #[tokio::main]
