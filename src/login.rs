@@ -3,6 +3,7 @@ use crate::auth::DeviceCodeResponse;
 use crate::config::Config;
 use crate::storage;
 use anyhow::Result;
+use crossterm::event::{self, Event, KeyCode};
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use std::io::{self, Write};
@@ -37,6 +38,7 @@ pub async fn login(config: &Config) -> Result<()> {
         &config.github.client_id,
         &device_code_response.device_code,
         device_code_response.interval,
+        ct.clone(),
     )
     .await?;
 
@@ -121,33 +123,63 @@ pub async fn spinner(
     );
     spinner.enable_steady_tick(Duration::from_millis(100));
 
-    // Wait for user confirmation
     println!("Press ENTER once you have authorized the device...");
+    io::stdout().flush()?;
 
     let spinner_clone = spinner.clone();
+    let timeout_duration = Duration::from_secs(device_code_response.expires_in);
+    // For testing: let timeout_duration = Duration::from_secs(3);
 
-    let (tx, mut rx) = mpsc::channel::<f32>(1);
-    let _ = tx.send(device_code_response.expires_in as f32).await;
+    let (tx, _rx) = mpsc::channel::<()>(1);
+    let ct_clone = cancellation_token.clone();
+
+    // Spawn countdown task
     tokio::spawn(async move {
-        while let Some(x) = rx.recv().await {
-            if cancellation_token.is_cancelled() {
+        let start = tokio::time::Instant::now();
+
+        loop {
+            if ct_clone.is_cancelled() {
                 spinner_clone.finish_with_message("✓ Authorization successful!");
-                break;
+                return;
             }
 
-            spinner_clone.set_message(format!("Wait for device authorisation ({} seconds)", x));
-            tokio::time::sleep(Duration::from_secs_f32(1_f32)).await;
-            let _ = tx.send(x - 1_f32).await;
+            let elapsed = start.elapsed();
+            if elapsed >= timeout_duration {
+                spinner_clone.finish_with_message("✗ Timeout expired. Exiting...");
+                ct_clone.cancel();
+                let _ = tx.send(()).await; // Signal main loop to exit
+                return;
+            }
+
+            let remaining = (timeout_duration - elapsed).as_secs();
+            spinner_clone.set_message(format!(
+                "Waiting for device authorization ({} seconds remaining)",
+                remaining
+            ));
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
     });
 
-    io::stdout().flush()?;
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    println!();
+    // Non-blocking keyboard input check using crossterm
+    let check_interval = Duration::from_millis(100);
+    loop {
+        // Check if timeout occurred
+        if cancellation_token.is_cancelled() {
+            spinner.finish_and_clear();
+            println!("\nAuthentication timeout expired. Please try again.");
+            return Err(anyhow::anyhow!("Authentication timeout expired"));
+        }
 
-    // Stop the spinner cleanly
-    spinner.finish_and_clear();
-
-    Ok(())
+        // Check if Enter key was pressed (non-blocking)
+        if event::poll(check_interval)? {
+            if let Event::Key(key_event) = event::read()? {
+                if key_event.code == KeyCode::Enter {
+                    // User pressed Enter, continue to polling
+                    spinner.finish_and_clear();
+                    return Ok(());
+                }
+            }
+        }
+    }
 }

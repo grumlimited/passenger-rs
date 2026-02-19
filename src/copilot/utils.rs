@@ -413,19 +413,23 @@ mod tests {
 
         // Check system instructions message
         assert_eq!(copilot_request.messages[0].role, "system");
-        assert!(copilot_request.messages[0]
-            .content
-            .as_ref()
-            .unwrap()
-            .contains("Return a comma-separated list of ticker symbols"));
+        assert!(
+            copilot_request.messages[0]
+                .content
+                .as_ref()
+                .unwrap()
+                .contains("Return a comma-separated list of ticker symbols")
+        );
 
         // Check user message
         assert_eq!(copilot_request.messages[1].role, "user");
-        assert!(copilot_request.messages[1]
-            .content
-            .as_ref()
-            .unwrap()
-            .starts_with("Extract the ticker symbols"));
+        assert!(
+            copilot_request.messages[1]
+                .content
+                .as_ref()
+                .unwrap()
+                .starts_with("Extract the ticker symbols")
+        );
 
         // Check max_tokens
         assert_eq!(copilot_request.max_tokens, Some(2000));

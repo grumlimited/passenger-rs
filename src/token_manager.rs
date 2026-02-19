@@ -1,7 +1,7 @@
 use crate::auth::{self, AccessTokenResponse, CopilotTokenResponse};
 use crate::config::Config;
 use crate::storage;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use reqwest::Client;
 use tracing::log::debug;
 use tracing::{info, warn};
@@ -89,9 +89,11 @@ mod tests {
 
         let result = refresh_token(&config, &client, None).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("No GitHub access token"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No GitHub access token")
+        );
     }
 }

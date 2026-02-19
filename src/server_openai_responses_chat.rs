@@ -4,7 +4,7 @@ use crate::openai::responses::models::prompt_request::PromptRequest;
 use crate::openai::responses::models::prompt_response::CompletionResponse;
 use crate::server::{AppError, AppState, Server};
 use crate::server_copilot::CopilotIntegration;
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 use serde_json::Value;
 use std::sync::Arc;
 use tracing::debug;

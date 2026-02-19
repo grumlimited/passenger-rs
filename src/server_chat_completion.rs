@@ -5,7 +5,7 @@ use crate::openai::completion::models::{
 };
 use crate::server::{AppError, AppState, Server};
 use crate::server_copilot::CopilotIntegration;
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};

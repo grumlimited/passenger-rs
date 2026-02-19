@@ -3,6 +3,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::time::sleep;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 /// Response from GitHub device code request
@@ -136,41 +137,13 @@ pub async fn request_device_code(
 ///
 /// # Returns
 /// Access token on success
-///
-/// # Example
-/// ```no_run
-/// use passenger_rs::auth::{request_device_code, poll_for_access_token};
-/// use reqwest::Client;
-///
-/// #[tokio::main]
-/// async fn main() -> anyhow::Result<()> {
-///     let client = Client::new();
-///     let device_resp = request_device_code(
-///         &client,
-///         "https://github.com/login/device/code",
-///         "Iv1.b507a08c87ecfe98"
-///     ).await?;
-///     
-///     println!("Visit: {} and enter: {}", device_resp.verification_uri, device_resp.user_code);
-///     
-///     let token = poll_for_access_token(
-///         &client,
-///         "https://github.com/login/oauth/access_token",
-///         "Iv1.b507a08c87ecfe98",
-///         &device_resp.device_code,
-///         device_resp.interval,
-///     ).await?;
-///     
-///     println!("Access token: {}", token.access_token);
-///     Ok(())
-/// }
-/// ```
 pub async fn poll_for_access_token(
     client: &Client,
     oauth_token_url: &str,
     client_id: &str,
     device_code: &str,
     interval: u64,
+    ct: CancellationToken,
 ) -> Result<AccessTokenResponse> {
     let request_body = AccessTokenRequest {
         client_id: client_id.to_string(),
@@ -179,6 +152,10 @@ pub async fn poll_for_access_token(
     };
 
     loop {
+        if ct.is_cancelled() {
+            anyhow::bail!("Polling cancelled");
+        }
+
         info!("Polling for access token...");
 
         let response = client
@@ -413,6 +390,8 @@ mod tests {
             .mount(&mock_server)
             .await;
 
+        let ct = CancellationToken::new();
+
         // Make request
         let client = Client::new();
         let url = format!("{}/oauth/access_token", mock_server.uri());
@@ -421,7 +400,8 @@ mod tests {
             &url,
             "Iv1.b507a08c87ecfe98",
             "test_device_code",
-            1, // Short interval for testing
+            1, // Short interval for testing,
+            ct,
         )
         .await;
 
@@ -451,12 +431,20 @@ mod tests {
             .mount(&mock_server)
             .await;
 
+        let ct = CancellationToken::new();
+
         // Make request
         let client = Client::new();
         let url = format!("{}/oauth/access_token", mock_server.uri());
-        let result =
-            poll_for_access_token(&client, &url, "Iv1.b507a08c87ecfe98", "test_device_code", 1)
-                .await;
+        let result = poll_for_access_token(
+            &client,
+            &url,
+            "Iv1.b507a08c87ecfe98",
+            "test_device_code",
+            1,
+            ct,
+        )
+        .await;
 
         // Assertions
         assert!(result.is_err(), "Request should fail with expired token");
