@@ -167,8 +167,9 @@ pub async fn spinner(
         // Check if timeout occurred
         if cancellation_token.is_cancelled() {
             spinner.finish_and_clear();
-            println!("\nAuthentication timeout expired. Please try again.");
-            return Err(anyhow::anyhow!("Authentication timeout expired"));
+            return Err(anyhow::anyhow!(
+                "Authentication timeout expired. Please try again."
+            ));
         }
 
         // Check if Enter key was pressed (non-blocking)
