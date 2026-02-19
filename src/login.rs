@@ -26,7 +26,7 @@ pub async fn login(config: &Config) -> Result<()> {
 
     info!("Device code received!");
 
-    let ct = tokio_util::sync::CancellationToken::new();
+    let ct = CancellationToken::new();
 
     spinner(&device_code_response, ct.clone()).await?;
 
@@ -119,11 +119,11 @@ pub async fn spinner(
             .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
             .template("{spinner:.cyan} {msg}")?,
     );
+    spinner.enable_steady_tick(Duration::from_millis(100));
 
     // Wait for user confirmation
     println!("Press ENTER once you have authorized the device...");
 
-    // Start spinner in a separate task
     let spinner_clone = spinner.clone();
 
     let (tx, mut rx) = mpsc::channel::<f32>(1);
@@ -135,7 +135,6 @@ pub async fn spinner(
                 break;
             }
 
-            spinner_clone.tick();
             spinner_clone.set_message(format!("Wait for device authorisation ({} seconds)", x));
             tokio::time::sleep(Duration::from_secs_f32(1_f32)).await;
             let _ = tx.send(x - 1_f32).await;
