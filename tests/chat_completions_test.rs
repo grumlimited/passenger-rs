@@ -246,11 +246,11 @@ async fn setup_test_tokens() {
     if storage::token_exists() {
         // Verify token is valid
 
-        if let Ok(token) = storage::load_token() {
-            if !storage::is_token_expired(&token) {
-                println!("Using existing valid token");
-                return;
-            }
+        if let Ok(token) = storage::load_token()
+            && !storage::is_token_expired(&token)
+        {
+            println!("Using existing valid token");
+            return;
         }
     }
 

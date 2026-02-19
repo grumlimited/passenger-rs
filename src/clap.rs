@@ -87,17 +87,17 @@ impl Args {
 
         // If custom paths are specified, move the tokens after login
         if result.is_ok() {
-            if let Some(ref access_token_path) = self.access_token_path {
-                if let Ok(Some(token)) = storage::load_access_token() {
-                    storage::save_access_token_to_path(&token, Some(Path::new(access_token_path)))?;
-                    info!("Access token saved to custom path: {}", access_token_path);
-                }
+            if let Some(ref access_token_path) = self.access_token_path
+                && let Ok(Some(token)) = storage::load_access_token()
+            {
+                storage::save_access_token_to_path(&token, Some(Path::new(access_token_path)))?;
+                info!("Access token saved to custom path: {}", access_token_path);
             }
-            if let Some(ref copilot_token_path) = self.copilot_token_path {
-                if let Ok(token) = storage::load_token() {
-                    storage::save_token_to_path(&token, Some(Path::new(copilot_token_path)))?;
-                    info!("Copilot token saved to custom path: {}", copilot_token_path);
-                }
+            if let Some(ref copilot_token_path) = self.copilot_token_path
+                && let Ok(token) = storage::load_token()
+            {
+                storage::save_token_to_path(&token, Some(Path::new(copilot_token_path)))?;
+                info!("Copilot token saved to custom path: {}", copilot_token_path);
             }
         }
 

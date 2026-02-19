@@ -173,14 +173,13 @@ pub async fn spinner(
         }
 
         // Check if Enter key was pressed (non-blocking)
-        if event::poll(check_interval)? {
-            if let Event::Key(key_event) = event::read()? {
-                if key_event.code == KeyCode::Enter {
-                    // User pressed Enter, continue to polling
-                    spinner.finish_and_clear();
-                    return Ok(());
-                }
-            }
+        if event::poll(check_interval)?
+            && let Event::Key(key_event) = event::read()?
+            && key_event.code == KeyCode::Enter
+        {
+            // User pressed Enter, continue to polling
+            spinner.finish_and_clear();
+            return Ok(());
         }
     }
 }

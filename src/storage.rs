@@ -28,13 +28,13 @@ pub fn save_token_to_path(token: &CopilotTokenResponse, custom_path: Option<&Pat
     let token_path = match custom_path {
         Some(path) => {
             // Verify custom path is valid
-            if let Some(parent) = path.parent() {
-                if !parent.exists() {
-                    return Err(anyhow::anyhow!(
-                        "Parent directory does not exist: {}",
-                        parent.display()
-                    ));
-                }
+            if let Some(parent) = path.parent()
+                && !parent.exists()
+            {
+                return Err(anyhow::anyhow!(
+                    "Parent directory does not exist: {}",
+                    parent.display()
+                ));
             }
             path.to_path_buf()
         }
@@ -64,13 +64,13 @@ pub fn save_access_token_to_path(
     let token_path = match custom_path {
         Some(path) => {
             // Verify custom path is valid
-            if let Some(parent) = path.parent() {
-                if !parent.exists() {
-                    return Err(anyhow::anyhow!(
-                        "Parent directory does not exist: {}",
-                        parent.display()
-                    ));
-                }
+            if let Some(parent) = path.parent()
+                && !parent.exists()
+            {
+                return Err(anyhow::anyhow!(
+                    "Parent directory does not exist: {}",
+                    parent.display()
+                ));
             }
             path.to_path_buf()
         }
