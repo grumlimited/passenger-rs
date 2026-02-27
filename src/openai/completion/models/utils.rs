@@ -198,7 +198,7 @@ impl From<CopilotModel> for OpenAIModel {
             id: value.id,
             object: "model".to_string(),
             created: 1687882411,
-            owned_by: value.publisher,
+            owned_by: value.family,
         }
     }
 }
