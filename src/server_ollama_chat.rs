@@ -97,7 +97,7 @@ impl OllamaChatEndpoint for Server {
 
         let status = response.status();
         if !status.is_success() {
-            return Self::handle_errors(response).await;
+            return Err(Self::handle_errors(response).await.unwrap_err());
         }
 
         let copilot_response: CopilotChatResponse = response.json().await.map_err(|e| {

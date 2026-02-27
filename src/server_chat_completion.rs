@@ -5,11 +5,13 @@ use crate::openai::completion::models::{
 };
 use crate::server::{AppError, AppState, Server};
 use crate::server_copilot::CopilotIntegration;
+use axum::response::IntoResponse;
 use axum::{Json, extract::State};
+use futures_util::{StreamExt as _, TryStreamExt as _};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::log::{error, info};
+use tracing::log::{error, info, warn};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CopilotChoice {
@@ -30,20 +32,23 @@ pub(crate) trait CoPilotChatCompletions: CopilotIntegration {
     async fn chat_completions(
         state: State<Arc<AppState>>,
         request: Json<OpenAIChatRequest>,
-    ) -> Result<Json<OpenAIChatResponse>, AppError>;
+    ) -> Result<axum::response::Response, AppError>;
 }
 
 impl CoPilotChatCompletions for Server {
     async fn chat_completions(
         State(state): State<Arc<AppState>>,
         request: Json<OpenAIChatRequest>,
-    ) -> Result<Json<OpenAIChatResponse>, AppError> {
+    ) -> Result<axum::response::Response, AppError> {
         let mut request = request.0;
+        
         request.prepare_for_copilot();
         info!(
-            "Received chat completion request for model: {}",
-            request.model
+            "Received chat completion request for model: {} (stream={})",
+            request.model, request.stream
         );
+
+        let is_stream = request.stream;
 
         // Get a valid Copilot token
         let token = Self::get_token(state.clone()).await?;
@@ -61,60 +66,105 @@ impl CoPilotChatCompletions for Server {
             return Self::handle_errors(response).await;
         }
 
-        let copilot_response: CopilotChatResponse = response.json().await.map_err(|e| {
-            error!("Failed to parse Copilot response: {}", e);
-            AppError::InternalServerError(format!("Failed to parse Copilot response: {}", e))
-        })?;
+        if is_stream {
+            use axum::response::sse::{Event, Sse};
 
-        let since_the_epoch = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time should go forward");
+            let byte_stream = response.bytes_stream();
 
-        // Transform Copilot response to OpenAI format
-        let openai_response = OpenAIChatResponse {
-            id: copilot_response.id,
-            object: "chat.completion".to_string(),
-            // IMPORTANT: Handle optional `created` field from GitHub Copilot API
-            // - GitHub Copilot's response may omit the `created` field
-            // - OpenAI's API spec requires `created` as a mandatory integer (Unix timestamp)
-            // - We default to the current timestamp if Copilot doesn't provide one
-            created: copilot_response
-                .created
-                .unwrap_or(since_the_epoch.as_secs()),
-            model: copilot_response.model,
-            choices: copilot_response
-                .choices
-                .into_iter()
-                .enumerate()
-                .map(|(i, c)| OpenAIChoice {
-                    // Use the index from Copilot if available, otherwise use position
-                    index: c.index.unwrap_or(i as u32),
-                    message: OpenAIMessage {
-                        role: c.message.role,
-                        content: c.message.content,
-                        tool_calls: c.message.tool_calls,
-                        tool_call_id: c.message.tool_call_id,
-                        name: c.message.name,
-                    },
-                    finish_reason: c.finish_reason,
+            // Each chunk from Copilot is raw SSE text, potentially containing
+            // one or more lines of the form "data: <json>\n\n".
+            // We split on newlines, strip the "data: " prefix from each line,
+            // and re-emit the bare JSON payload as an axum SSE Event.
+            let sse_stream = byte_stream
+                .map_err(|e: reqwest::Error| {
+                    error!("Error reading streaming response from Copilot: {}", e);
+                    std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
                 })
-                .collect(),
-            usage: copilot_response
-                .usage
-                .map(|u| OpenAIUsage {
-                    prompt_tokens: u.prompt_tokens,
-                    completion_tokens: u.completion_tokens,
-                    total_tokens: u.total_tokens,
-                })
-                .unwrap_or(OpenAIUsage {
-                    prompt_tokens: 0,
-                    completion_tokens: 0,
-                    total_tokens: 0,
-                }),
-        };
+                .flat_map(|result: Result<tokio_util::bytes::Bytes, std::io::Error>| {
+                    let events: Vec<Result<Event, std::io::Error>> = match result {
+                        Err(e) => vec![Err(e)],
+                        Ok(bytes) => {
+                            let text = String::from_utf8_lossy(&bytes).into_owned();
+                            let mut events = Vec::new();
+                            for line in text.lines() {
+                                if let Some(payload) = line.strip_prefix("data: ") {
+                                    // payload is the bare JSON chunk (or "[DONE]")
+                                    events.push(Ok(Event::default().data(payload)));
+                                } else if !line.trim().is_empty() {
+                                    warn!("Unexpected SSE line from Copilot: {}", line);
+                                }
+                            }
+                            events
+                        }
+                    };
+                    futures_util::stream::iter(events)
+                });
 
-        info!("Successfully processed chat completion request");
-        Ok(Json(openai_response))
+            info!("Streaming chat completion response");
+            Ok(Sse::new(sse_stream).into_response())
+        } else {
+            // ----------------------------------------------------------------
+            // Non-streaming path: buffer the full response and return JSON.
+            // ----------------------------------------------------------------
+            let copilot_response: CopilotChatResponse =
+                response.json().await.map_err(|e| {
+                    error!("Failed to parse Copilot response: {}", e);
+                    AppError::InternalServerError(format!(
+                        "Failed to parse Copilot response: {}",
+                        e
+                    ))
+                })?;
+
+            let since_the_epoch = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time should go forward");
+
+            // Transform Copilot response to OpenAI format
+            let openai_response = OpenAIChatResponse {
+                id: copilot_response.id,
+                object: "chat.completion".to_string(),
+                // IMPORTANT: Handle optional `created` field from GitHub Copilot API
+                // - GitHub Copilot's response may omit the `created` field
+                // - OpenAI's API spec requires `created` as a mandatory integer (Unix timestamp)
+                // - We default to the current timestamp if Copilot doesn't provide one
+                created: copilot_response
+                    .created
+                    .unwrap_or(since_the_epoch.as_secs()),
+                model: copilot_response.model,
+                choices: copilot_response
+                    .choices
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, c)| OpenAIChoice {
+                        // Use the index from Copilot if available, otherwise use position
+                        index: c.index.unwrap_or(i as u32),
+                        message: OpenAIMessage {
+                            role: c.message.role,
+                            content: c.message.content,
+                            tool_calls: c.message.tool_calls,
+                            tool_call_id: c.message.tool_call_id,
+                            name: c.message.name,
+                        },
+                        finish_reason: c.finish_reason,
+                    })
+                    .collect(),
+                usage: copilot_response
+                    .usage
+                    .map(|u| OpenAIUsage {
+                        prompt_tokens: u.prompt_tokens,
+                        completion_tokens: u.completion_tokens,
+                        total_tokens: u.total_tokens,
+                    })
+                    .unwrap_or(OpenAIUsage {
+                        prompt_tokens: 0,
+                        completion_tokens: 0,
+                        total_tokens: 0,
+                    }),
+            };
+
+            info!("Successfully processed chat completion request");
+            Ok(Json(openai_response).into_response())
+        }
     }
 }
 

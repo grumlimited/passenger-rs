@@ -1,6 +1,5 @@
 use crate::auth::CopilotTokenResponse;
 use crate::server::{AppError, AppState, Server};
-use axum::Json;
 use reqwest::{IntoUrl, Response};
 use serde::Serialize;
 use std::sync::Arc;
@@ -17,7 +16,7 @@ pub(crate) trait CopilotIntegration {
         U: IntoUrl,
         T: Serialize + Sized;
 
-    async fn handle_errors<T>(response: Response) -> Result<Json<T>, AppError>;
+    async fn handle_errors(response: Response) -> Result<axum::response::Response, AppError>;
 }
 
 impl CopilotIntegration for Server {
@@ -49,7 +48,7 @@ impl CopilotIntegration for Server {
             })
     }
 
-    async fn handle_errors<T>(response: Response) -> Result<Json<T>, AppError> {
+    async fn handle_errors(response: Response) -> Result<axum::response::Response, AppError> {
         let status = response.status();
         let error_text = response
             .text()

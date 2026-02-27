@@ -102,6 +102,33 @@ pub struct OpenAIChoice {
     pub finish_reason: String,
 }
 
+/// A single SSE chunk in a streaming chat completion response (`object: "chat.completion.chunk"`)
+#[derive(Debug, Serialize)]
+pub struct OpenAIChatChunk {
+    pub id: String,
+    pub object: String,
+    pub created: u64,
+    pub model: String,
+    pub choices: Vec<OpenAIChunkChoice>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OpenAIChunkChoice {
+    pub index: u32,
+    pub delta: OpenAIDelta,
+    pub finish_reason: Option<String>,
+}
+
+/// The incremental content carried by each SSE chunk.
+/// On the first chunk only `role` is set; subsequent chunks carry `content`.
+#[derive(Debug, Serialize)]
+pub struct OpenAIDelta {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct OpenAIUsage {
     pub prompt_tokens: u32,
