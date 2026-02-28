@@ -1,9 +1,9 @@
 use crate::copilot::CopilotChatRequest;
 use crate::copilot::CopilotChatResponse;
 use crate::openai::completion::models::OpenAIChatRequest;
+use crate::server::copilot::CopilotIntegration;
 use crate::server::{AppError, AppState, Server};
-use crate::server_copilot::CopilotIntegration;
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::{Json, extract::State};
 use futures_util::{StreamExt as _, TryStreamExt as _};
 use reqwest::Error;
@@ -66,20 +66,30 @@ pub(crate) trait OllamaChatEndpoint: CopilotIntegration {
     async fn ollama_chat(
         state: State<Arc<AppState>>,
         request: Json<OpenAIChatRequest>,
-    ) -> Result<axum::response::Response, AppError>;
+    ) -> Result<Response, AppError>;
+
+    async fn ollama_chat_sse(
+        model: String,
+        response: reqwest::Response,
+    ) -> Result<Response, AppError>;
+
+    async fn ollama_chat_no_sse(
+        copilot_request: CopilotChatRequest,
+        response: reqwest::Response,
+    ) -> Result<Response, AppError>;
 }
 
 impl OllamaChatEndpoint for Server {
     async fn ollama_chat(
         State(state): State<Arc<AppState>>,
         request: Json<OpenAIChatRequest>,
-    ) -> Result<axum::response::Response, AppError> {
+    ) -> Result<Response, AppError> {
         let mut request = request.0;
 
-        // debug!(
-        //     "original_openai_request:\n{}",
-        //     serde_json::to_string_pretty(&request).unwrap()
-        // );
+        debug!(
+            "original_ollama_request:\n{}",
+            serde_json::to_string_pretty(&request).unwrap()
+        );
 
         request.prepare_for_copilot();
 
@@ -107,60 +117,77 @@ impl OllamaChatEndpoint for Server {
         }
 
         if is_stream {
-            use axum::body::Body;
-            use axum::http::header;
-
-            let model = copilot_request.model.clone();
-
-            let byte_stream = response.bytes_stream();
-
-            // Each Copilot SSE chunk may carry one or more "data: <json>\n" lines.
-            // We parse the OpenAI-format delta and re-emit as Ollama NDJSON chunks.
-            // The final Copilot chunk is "data: [DONE]" — we emit the terminal
-            // Ollama object (done: true) at that point.
-            let ndjson_stream = byte_stream
-                .map_err(|e: Error| {
-                    error!("Error reading streaming response from Copilot: {}", e);
-                    std::io::Error::other(e.to_string())
-                })
-                .flat_map(move |result| {
-                    let model = model.clone();
-                    let lines: Vec<Result<Bytes, std::io::Error>> = match result {
-                        Err(e) => vec![Err(e)],
-                        Ok(bytes) => {
-                            let text = String::from_utf8_lossy(&bytes).into_owned();
-                            text.lines()
-                                .filter_map(|line| match translate_sse_line(&model, line) {
-                                    SseLineOutput::Line(s) => Some(Ok(Bytes::from(s))),
-                                    SseLineOutput::Skip | SseLineOutput::Unexpected(_) => None,
-                                })
-                                .collect()
-                        }
-                    };
-                    futures_util::stream::iter(lines)
-                });
-
-            info!("Streaming Ollama chat response");
-            let body = Body::from_stream(ndjson_stream);
-            Ok(([(header::CONTENT_TYPE, "application/x-ndjson")], body).into_response())
+            Self::ollama_chat_sse(copilot_request.model.clone(), response).await
         } else {
-            let copilot_response: CopilotChatResponse = response.json().await.map_err(|e| {
-                error!("Failed to parse Copilot response: {}", e);
-                AppError::InternalServerError(format!("Failed to parse Copilot response: {}", e))
-            })?;
-
-            debug!(
-                "copilot_response:\n{}",
-                serde_json::to_string_pretty(&copilot_response).unwrap()
-            );
-
-            // Transform Copilot response to Ollama format
-            let ollama_response = transform_to_ollama_response(&copilot_request, copilot_response)?;
-
-            info!("Successfully processed Ollama chat request");
-
-            Ok(Json(ollama_response).into_response())
+            Self::ollama_chat_no_sse(copilot_request, response).await
         }
+    }
+
+    async fn ollama_chat_no_sse(
+        copilot_request: CopilotChatRequest,
+        response: reqwest::Response,
+    ) -> Result<Response, AppError> {
+        let copilot_response: CopilotChatResponse = response.json().await.map_err(|e| {
+            error!("Failed to parse Copilot response: {}", e);
+            AppError::InternalServerError(format!("Failed to parse Copilot response: {}", e))
+        })?;
+
+        debug!(
+            "copilot_response:\n{}",
+            serde_json::to_string_pretty(&copilot_response).unwrap()
+        );
+
+        // Transform Copilot response to Ollama format
+        let ollama_response = transform_to_ollama_response(&copilot_request, copilot_response)?;
+
+        debug!(
+            "ollama_response:\n{}",
+            serde_json::to_string_pretty(&ollama_response).unwrap()
+        );
+
+        info!("Successfully processed Ollama chat request");
+
+        Ok(Json(ollama_response).into_response())
+    }
+
+    async fn ollama_chat_sse(
+        model: String,
+        response: reqwest::Response,
+    ) -> Result<Response, AppError> {
+        use axum::body::Body;
+        use axum::http::header;
+
+        let byte_stream = response.bytes_stream();
+
+        // Each Copilot SSE chunk may carry one or more "data: <json>\n" lines.
+        // We parse the OpenAI-format delta and re-emit as Ollama NDJSON chunks.
+        // The final Copilot chunk is "data: [DONE]" — we emit the terminal
+        // Ollama object (done: true) at that point.
+        let ndjson_stream = byte_stream
+            .map_err(|e: Error| {
+                error!("Error reading streaming response from Copilot: {}", e);
+                std::io::Error::other(e.to_string())
+            })
+            .flat_map(move |result| {
+                let model = model.clone();
+                let lines: Vec<Result<Bytes, std::io::Error>> = match result {
+                    Err(e) => vec![Err(e)],
+                    Ok(bytes) => {
+                        let text = String::from_utf8_lossy(&bytes).into_owned();
+                        text.lines()
+                            .filter_map(|line| match translate_sse_line(&model, line) {
+                                SseLineOutput::Line(s) => Some(Ok(Bytes::from(s))),
+                                SseLineOutput::Skip | SseLineOutput::Unexpected(_) => None,
+                            })
+                            .collect()
+                    }
+                };
+                futures_util::stream::iter(lines)
+            });
+
+        info!("Streaming Ollama chat response");
+        let body = Body::from_stream(ndjson_stream);
+        Ok(([(header::CONTENT_TYPE, "application/x-ndjson")], body).into_response())
     }
 }
 
@@ -355,7 +382,7 @@ mod tests {
     use crate::copilot::CopilotMessage;
     use crate::openai::completion::models::FunctionDefinition;
     use crate::openai::completion::models::{OpenAIChatRequest, Tool};
-    use crate::server_chat_completion::{CopilotChoice, CopilotUsage};
+    use crate::server::openai::chat_completion::{CopilotChoice, CopilotUsage};
 
     // -----------------------------------------------------------------------
     // translate_sse_line — streaming conversion tests
@@ -473,7 +500,7 @@ mod tests {
 
     #[test]
     fn test_openai_chat_request_multiple_tools_normalize() {
-        let json = include_str!("resources/rig_ollama_request_multiple_tools.json");
+        let json = include_str!("../../resources/rig_ollama_request_multiple_tools.json");
         let mut json: OpenAIChatRequest = serde_json::from_str(json).unwrap();
 
         assert!(
@@ -495,7 +522,7 @@ mod tests {
 
     #[test]
     fn test_openai_chat_request_normalize() {
-        let json = include_str!("resources/rig_ollama_request.json");
+        let json = include_str!("../../resources/rig_ollama_request.json");
         let mut json: OpenAIChatRequest = serde_json::from_str(json).unwrap();
 
         assert!(
@@ -634,7 +661,7 @@ mod tests {
     #[test]
     fn test_parse_ollama_response() {
         // Test parsing the expected JSON structure
-        let json = include_str!("resources/ollama_chat_response.json");
+        let json = include_str!("../../resources/ollama_chat_response.json");
         let result = serde_json::from_str::<OllamaChatResponse>(json);
 
         assert!(
@@ -642,5 +669,302 @@ mod tests {
             "Failed to parse Ollama response: {:?}",
             result.err()
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Helpers shared by the two function-level test sections below
+    // -----------------------------------------------------------------------
+
+    fn make_reqwest_response(body: impl Into<bytes::Bytes>) -> reqwest::Response {
+        let http_resp = http::Response::builder()
+            .status(200)
+            .body(body.into())
+            .unwrap();
+        reqwest::Response::from(http_resp)
+    }
+
+    fn make_copilot_request(model: &str) -> CopilotChatRequest {
+        CopilotChatRequest {
+            model: model.to_string(),
+            messages: vec![CopilotMessage {
+                role: "user".to_string(),
+                content: Some("Hello".to_string()),
+                padding: None,
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            }],
+            temperature: None,
+            max_tokens: None,
+            stream: None,
+            tools: None,
+            tool_choice: None,
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // ollama_chat_no_sse
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_no_sse_returns_ollama_response() {
+        let body = serde_json::json!({
+            "id": "chatcmpl-abc",
+            "created": 1700000000u64,
+            "model": "gpt-4o",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "Hello!" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8 }
+        });
+
+        let response = make_reqwest_response(body.to_string());
+        let copilot_request = make_copilot_request("llama3");
+
+        let result = <Server as OllamaChatEndpoint>::ollama_chat_no_sse(copilot_request, response)
+            .await
+            .expect("should not error");
+
+        assert_eq!(result.status(), 200);
+
+        let bytes = axum::body::to_bytes(result.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let parsed: OllamaChatResponse = serde_json::from_slice(&bytes).unwrap();
+
+        assert_eq!(parsed.model, "llama3");
+        assert_eq!(parsed.message.role, "assistant");
+        assert_eq!(parsed.message.content, "Hello!");
+        assert!(parsed.done);
+        assert_eq!(parsed.done_reason, Some("stop".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_no_sse_usage_is_mapped() {
+        let body = serde_json::json!({
+            "id": "chatcmpl-usage",
+            "created": 1700000000u64,
+            "model": "gpt-4o",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "Hi" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 10, "completion_tokens": 7, "total_tokens": 17 }
+        });
+
+        let response = make_reqwest_response(body.to_string());
+        let copilot_request = make_copilot_request("llama3");
+
+        let result = <Server as OllamaChatEndpoint>::ollama_chat_no_sse(copilot_request, response)
+            .await
+            .unwrap();
+
+        let bytes = axum::body::to_bytes(result.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let parsed: OllamaChatResponse = serde_json::from_slice(&bytes).unwrap();
+
+        assert_eq!(parsed.prompt_eval_count, Some(10));
+        assert_eq!(parsed.eval_count, Some(7));
+    }
+
+    #[tokio::test]
+    async fn test_no_sse_missing_usage_yields_none_counts() {
+        let body = serde_json::json!({
+            "id": "chatcmpl-nousage",
+            "created": 1700000000u64,
+            "model": "gpt-4o",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "Hi" },
+                "finish_reason": "stop"
+            }]
+        });
+
+        let response = make_reqwest_response(body.to_string());
+        let copilot_request = make_copilot_request("llama3");
+
+        let result = <Server as OllamaChatEndpoint>::ollama_chat_no_sse(copilot_request, response)
+            .await
+            .unwrap();
+
+        let bytes = axum::body::to_bytes(result.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let parsed: OllamaChatResponse = serde_json::from_slice(&bytes).unwrap();
+
+        assert_eq!(parsed.prompt_eval_count, None);
+        assert_eq!(parsed.eval_count, None);
+    }
+
+    #[tokio::test]
+    async fn test_no_sse_finish_reason_length() {
+        let body = serde_json::json!({
+            "id": "chatcmpl-len",
+            "created": 1700000000u64,
+            "model": "gpt-4o",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "Truncated" },
+                "finish_reason": "length"
+            }]
+        });
+
+        let response = make_reqwest_response(body.to_string());
+        let copilot_request = make_copilot_request("llama3");
+
+        let result = <Server as OllamaChatEndpoint>::ollama_chat_no_sse(copilot_request, response)
+            .await
+            .unwrap();
+
+        let bytes = axum::body::to_bytes(result.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let parsed: OllamaChatResponse = serde_json::from_slice(&bytes).unwrap();
+
+        assert_eq!(parsed.done_reason, Some("length".to_string()));
+    }
+
+    // -----------------------------------------------------------------------
+    // chat_completions_sse
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_sse_response_has_correct_content_type() {
+        let chunk = r#"{"id":"x","object":"chat.completion.chunk","created":1700000001,"model":"gpt-4o","choices":[{"index":0,"delta":{"content":"Hi"},"finish_reason":null}]}"#;
+        let body = format!("data: {chunk}\ndata: [DONE]\n");
+
+        let response = make_reqwest_response(body);
+        let result =
+            <Server as OllamaChatEndpoint>::ollama_chat_sse("llama3".to_string(), response)
+                .await
+                .expect("should not error");
+
+        assert_eq!(result.status(), 200);
+        let ct = result
+            .headers()
+            .get("content-type")
+            .expect("must have content-type")
+            .to_str()
+            .unwrap();
+        assert!(
+            ct.contains("application/x-ndjson"),
+            "must be ndjson content-type"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_sse_emits_ndjson_lines() {
+        let chunk = r#"{"id":"x","object":"chat.completion.chunk","created":1700000001,"model":"gpt-4o","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}"#;
+        let body = format!("data: {chunk}\ndata: [DONE]\n");
+
+        let response = make_reqwest_response(body);
+        let result =
+            <Server as OllamaChatEndpoint>::ollama_chat_sse("llama3".to_string(), response)
+                .await
+                .unwrap();
+
+        let bytes = axum::body::to_bytes(result.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let raw = std::str::from_utf8(&bytes).unwrap();
+
+        // Each NDJSON line is newline-terminated; split and filter blanks
+        let lines: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 2, "one content chunk + one done object");
+
+        let content_obj: OllamaChatResponse = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(content_obj.message.content, "Hello");
+        assert!(!content_obj.done);
+
+        let done_obj: OllamaChatResponse = serde_json::from_str(lines[1]).unwrap();
+        assert!(done_obj.done);
+        assert_eq!(done_obj.done_reason, Some("stop".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_sse_model_is_propagated_to_ndjson() {
+        let chunk = r#"{"id":"x","object":"chat.completion.chunk","created":1700000001,"model":"ignored-by-proxy","choices":[{"index":0,"delta":{"content":"Hi"},"finish_reason":null}]}"#;
+        let body = format!("data: {chunk}\ndata: [DONE]\n");
+
+        let response = make_reqwest_response(body);
+        let result =
+            <Server as OllamaChatEndpoint>::ollama_chat_sse("my-model".to_string(), response)
+                .await
+                .unwrap();
+
+        let bytes = axum::body::to_bytes(result.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let raw = std::str::from_utf8(&bytes).unwrap();
+        let lines: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+
+        for line in &lines {
+            let obj: OllamaChatResponse = serde_json::from_str(line).unwrap();
+            assert_eq!(
+                obj.model, "my-model",
+                "model must come from the argument, not the payload"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_sse_multiple_chunks_all_forwarded() {
+        let chunk1 = r#"{"id":"x","object":"chat.completion.chunk","created":1700000001,"model":"gpt-4o","choices":[{"index":0,"delta":{"content":"Foo"},"finish_reason":null}]}"#;
+        let chunk2 = r#"{"id":"x","object":"chat.completion.chunk","created":1700000002,"model":"gpt-4o","choices":[{"index":0,"delta":{"content":"Bar"},"finish_reason":null}]}"#;
+        let body = format!("data: {chunk1}\ndata: {chunk2}\ndata: [DONE]\n");
+
+        let response = make_reqwest_response(body);
+        let result =
+            <Server as OllamaChatEndpoint>::ollama_chat_sse("llama3".to_string(), response)
+                .await
+                .unwrap();
+
+        let bytes = axum::body::to_bytes(result.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let raw = std::str::from_utf8(&bytes).unwrap();
+        let lines: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+
+        assert_eq!(lines.len(), 3, "two content chunks + one done object");
+
+        let obj1: OllamaChatResponse = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(obj1.message.content, "Foo");
+        assert!(!obj1.done);
+
+        let obj2: OllamaChatResponse = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(obj2.message.content, "Bar");
+        assert!(!obj2.done);
+
+        let done: OllamaChatResponse = serde_json::from_str(lines[2]).unwrap();
+        assert!(done.done);
+    }
+
+    #[tokio::test]
+    async fn test_sse_empty_lines_are_not_emitted() {
+        let chunk = r#"{"id":"x","object":"chat.completion.chunk","created":1700000001,"model":"gpt-4o","choices":[{"index":0,"delta":{"content":"Hi"},"finish_reason":null}]}"#;
+        // Blank lines between data lines must not produce NDJSON objects
+        let body = format!("\ndata: {chunk}\n\ndata: [DONE]\n\n");
+
+        let response = make_reqwest_response(body);
+        let result =
+            <Server as OllamaChatEndpoint>::ollama_chat_sse("llama3".to_string(), response)
+                .await
+                .unwrap();
+
+        let bytes = axum::body::to_bytes(result.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let raw = std::str::from_utf8(&bytes).unwrap();
+        let lines: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+
+        assert_eq!(lines.len(), 2);
+        let obj: OllamaChatResponse = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(obj.message.content, "Hi");
+        let done: OllamaChatResponse = serde_json::from_str(lines[1]).unwrap();
+        assert!(done.done);
     }
 }

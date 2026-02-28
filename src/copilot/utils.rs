@@ -11,7 +11,7 @@ use crate::openai::responses::models::prompt_response::{
 use crate::openai::responses::models::prompt_response::{
     CompletionResponse, Output, ResponsesUsage,
 };
-use crate::server_chat_completion::CopilotUsage;
+use crate::server::openai::chat_completion::CopilotUsage;
 
 impl From<OpenAIChatRequest> for CopilotChatRequest {
     fn from(request: OpenAIChatRequest) -> Self {
@@ -210,7 +210,7 @@ impl From<PromptRequest> for CopilotChatRequest {
             messages,
             model: value.model,
             temperature: None,
-            max_tokens: Some(value.max_output_tokens),
+            max_tokens: value.max_output_tokens,
             stream: Some(false),
             tools,
             tool_choice: None,

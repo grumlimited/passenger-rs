@@ -1,13 +1,18 @@
 // use passenger_rs::auth::CopilotTokenResponse;
 use crate::auth::CopilotTokenResponse;
 use crate::config::Config;
-use crate::server_chat_completion::*;
-use crate::server_list_models::*;
-use crate::server_ollama_chat::*;
-use crate::server_ollama_tags::*;
-use crate::server_ollama_version::*;
-use crate::server_openai_responses_chat::*;
-use crate::{server, token_manager};
+use crate::token_manager;
+
+pub mod copilot;
+pub mod ollama;
+pub mod openai;
+
+use self::ollama::chat::*;
+use self::ollama::tags::*;
+use self::ollama::version::*;
+use self::openai::chat_completion::*;
+use self::openai::list_models::*;
+use self::openai::responses_chat::*;
 use axum::{
     Json, Router,
     http::StatusCode,
@@ -65,7 +70,7 @@ pub struct Server {
 impl Server {
     pub fn new(config: &Config) -> Self {
         let client = Client::new();
-        let state = server::AppState {
+        let state = AppState {
             config: config.clone(),
             client,
         };
@@ -80,7 +85,9 @@ impl Server {
     /// Create the Axum router
     fn create_router(state: Arc<AppState>) -> Router {
         Router::new()
+            // Openai-compatible endpoints
             .route("/v1/chat/completions", post(Self::chat_completions))
+            .route("/v1/responses", post(Self::openai_responses_chat))
             // Ollama-compatible routes: standard /api/... paths
             .route("/api/chat", post(Self::ollama_chat))
             .route("/api/tags", get(Self::ollama_tags))
@@ -90,7 +97,7 @@ impl Server {
             .route("/v1/api/tags", get(Self::ollama_tags))
             .route("/v1/api/version", get(Self::ollama_version))
             .route("/v1/models", get(Self::list_models))
-            .route("/v1/responses", post(Self::openai_responses_chat))
+            // other endpoints
             .route("/health", get(health_check))
             .with_state(state)
     }

@@ -3,8 +3,8 @@ use crate::copilot::{CopilotChatRequest, CopilotChatResponse};
 use crate::openai::completion::models::{
     OpenAIChatRequest, OpenAIChatResponse, OpenAIChoice, OpenAIMessage, OpenAIUsage,
 };
+use crate::server::copilot::CopilotIntegration;
 use crate::server::{AppError, AppState, Server};
-use crate::server_copilot::CopilotIntegration;
 use axum::response::IntoResponse;
 use axum::{Json, extract::State};
 use futures_util::{StreamExt as _, TryStreamExt as _};
@@ -33,6 +33,14 @@ pub(crate) trait CoPilotChatCompletions: CopilotIntegration {
     async fn chat_completions(
         state: State<Arc<AppState>>,
         request: Json<OpenAIChatRequest>,
+    ) -> Result<axum::response::Response, AppError>;
+
+    async fn chat_completions_sse(
+        response: reqwest::Response,
+    ) -> Result<axum::response::Response, AppError>;
+
+    async fn chat_completions_no_sse(
+        response: reqwest::Response,
     ) -> Result<axum::response::Response, AppError>;
 }
 
@@ -68,100 +76,112 @@ impl CoPilotChatCompletions for Server {
         }
 
         if is_stream {
-            use axum::response::sse::{Event, Sse};
-
-            let byte_stream = response.bytes_stream();
-
-            // Each chunk from Copilot is raw SSE text, potentially containing
-            // one or more lines of the form "data: <json>\n\n".
-            // We split on newlines, strip the "data: " prefix from each line,
-            // and re-emit the bare JSON payload as an axum SSE Event.
-            let sse_stream = byte_stream
-                .map_err(|e: reqwest::Error| {
-                    error!("Error reading streaming response from Copilot: {}", e);
-                    Error::other(e.to_string())
-                })
-                .flat_map(|result| {
-                    let events: Vec<Result<Event, Error>> = match result {
-                        Err(e) => vec![Err(e)],
-                        Ok(bytes) => {
-                            let text = String::from_utf8_lossy(&bytes).into_owned();
-                            text.lines()
-                                .filter_map(|line| match translate_sse_line(line) {
-                                    ChatSseLineOutput::Data(payload) => {
-                                        Some(Ok(Event::default().data(payload)))
-                                    }
-                                    ChatSseLineOutput::Skip => None,
-                                    ChatSseLineOutput::Unexpected(raw) => {
-                                        warn!("Unexpected SSE line from Copilot: {}", raw);
-                                        None
-                                    }
-                                })
-                                .collect()
-                        }
-                    };
-                    futures_util::stream::iter(events)
-                });
-
-            info!("Streaming chat completion response");
-            Ok(Sse::new(sse_stream).into_response())
+            Self::chat_completions_sse(response).await
         } else {
-            // Non-streaming path: buffer the full response and return JSON.
-            let copilot_response: CopilotChatResponse = response.json().await.map_err(|e| {
-                error!("Failed to parse Copilot response: {}", e);
-                AppError::InternalServerError(format!("Failed to parse Copilot response: {}", e))
-            })?;
-
-            let since_the_epoch = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("time should go forward");
-
-            // Transform Copilot response to OpenAI format
-            let openai_response = OpenAIChatResponse {
-                id: copilot_response.id,
-                object: "chat.completion".to_string(),
-                // IMPORTANT: Handle optional `created` field from GitHub Copilot API
-                // - GitHub Copilot's response may omit the `created` field
-                // - OpenAI's API spec requires `created` as a mandatory integer (Unix timestamp)
-                // - We default to the current timestamp if Copilot doesn't provide one
-                created: copilot_response
-                    .created
-                    .unwrap_or(since_the_epoch.as_secs()),
-                model: copilot_response.model,
-                choices: copilot_response
-                    .choices
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, c)| OpenAIChoice {
-                        // Use the index from Copilot if available, otherwise use position
-                        index: c.index.unwrap_or(i as u32),
-                        message: OpenAIMessage {
-                            role: c.message.role,
-                            content: c.message.content,
-                            tool_calls: c.message.tool_calls,
-                            tool_call_id: c.message.tool_call_id,
-                            name: c.message.name,
-                        },
-                        finish_reason: c.finish_reason,
-                    })
-                    .collect(),
-                usage: copilot_response
-                    .usage
-                    .map(|u| OpenAIUsage {
-                        prompt_tokens: u.prompt_tokens,
-                        completion_tokens: u.completion_tokens,
-                        total_tokens: u.total_tokens,
-                    })
-                    .unwrap_or(OpenAIUsage {
-                        prompt_tokens: 0,
-                        completion_tokens: 0,
-                        total_tokens: 0,
-                    }),
-            };
-
-            info!("Successfully processed chat completion request");
-            Ok(Json(openai_response).into_response())
+            Self::chat_completions_no_sse(response).await
         }
+    }
+
+    async fn chat_completions_no_sse(
+        response: reqwest::Response,
+    ) -> Result<axum::response::Response, AppError> {
+        // Non-streaming path: buffer the full response and return JSON.
+        let copilot_response: CopilotChatResponse = response.json().await.map_err(|e| {
+            error!("Failed to parse Copilot response: {}", e);
+            AppError::InternalServerError(format!("Failed to parse Copilot response: {}", e))
+        })?;
+
+        let since_the_epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time should go forward");
+
+        // Transform Copilot response to OpenAI format
+        let openai_response = OpenAIChatResponse {
+            id: copilot_response.id,
+            object: "chat.completion".to_string(),
+            // IMPORTANT: Handle optional `created` field from GitHub Copilot API
+            // - GitHub Copilot's response may omit the `created` field
+            // - OpenAI's API spec requires `created` as a mandatory integer (Unix timestamp)
+            // - We default to the current timestamp if Copilot doesn't provide one
+            created: copilot_response
+                .created
+                .unwrap_or(since_the_epoch.as_secs()),
+            model: copilot_response.model,
+            choices: copilot_response
+                .choices
+                .into_iter()
+                .enumerate()
+                .map(|(i, c)| OpenAIChoice {
+                    // Use the index from Copilot if available, otherwise use position
+                    index: c.index.unwrap_or(i as u32),
+                    message: OpenAIMessage {
+                        role: c.message.role,
+                        content: c.message.content,
+                        tool_calls: c.message.tool_calls,
+                        tool_call_id: c.message.tool_call_id,
+                        name: c.message.name,
+                    },
+                    finish_reason: c.finish_reason,
+                })
+                .collect(),
+            usage: copilot_response
+                .usage
+                .map(|u| OpenAIUsage {
+                    prompt_tokens: u.prompt_tokens,
+                    completion_tokens: u.completion_tokens,
+                    total_tokens: u.total_tokens,
+                })
+                .unwrap_or(OpenAIUsage {
+                    prompt_tokens: 0,
+                    completion_tokens: 0,
+                    total_tokens: 0,
+                }),
+        };
+
+        info!("Successfully processed chat completion request");
+        Ok(Json(openai_response).into_response())
+    }
+
+    async fn chat_completions_sse(
+        response: reqwest::Response,
+    ) -> Result<axum::response::Response, AppError> {
+        use axum::response::sse::{Event, Sse};
+
+        let byte_stream = response.bytes_stream();
+
+        // Each chunk from Copilot is raw SSE text, potentially containing
+        // one or more lines of the form "data: <json>\n\n".
+        // We split on newlines, strip the "data: " prefix from each line,
+        // and re-emit the bare JSON payload as an axum SSE Event.
+        let sse_stream = byte_stream
+            .map_err(|e: reqwest::Error| {
+                error!("Error reading streaming response from Copilot: {}", e);
+                Error::other(e.to_string())
+            })
+            .flat_map(|result| {
+                let events: Vec<Result<Event, Error>> = match result {
+                    Err(e) => vec![Err(e)],
+                    Ok(bytes) => {
+                        let text = String::from_utf8_lossy(&bytes).into_owned();
+                        text.lines()
+                            .filter_map(|line| match translate_sse_line(line) {
+                                ChatSseLineOutput::Data(payload) => {
+                                    Some(Ok(Event::default().data(payload)))
+                                }
+                                ChatSseLineOutput::Skip => None,
+                                ChatSseLineOutput::Unexpected(raw) => {
+                                    warn!("Unexpected SSE line from Copilot: {}", raw);
+                                    None
+                                }
+                            })
+                            .collect()
+                    }
+                };
+                futures_util::stream::iter(events)
+            });
+
+        info!("Streaming chat completion response");
+        Ok(Sse::new(sse_stream).into_response())
     }
 }
 
@@ -195,6 +215,291 @@ pub(crate) fn translate_sse_line(line: &str) -> ChatSseLineOutput {
 mod tests {
     use super::*;
     use crate::openai::completion::models::{FunctionCall, ToolCall};
+
+    // -----------------------------------------------------------------------
+    // Helper
+    // -----------------------------------------------------------------------
+
+    fn make_reqwest_response(body: impl Into<bytes::Bytes>) -> reqwest::Response {
+        let http_resp = http::Response::builder()
+            .status(200)
+            .body(body.into())
+            .unwrap();
+        reqwest::Response::from(http_resp)
+    }
+
+    // -----------------------------------------------------------------------
+    // chat_completions_no_sse
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_no_sse_returns_openai_chat_response() {
+        let body = serde_json::json!({
+            "id": "chatcmpl-abc123",
+            "created": 1700000000u64,
+            "model": "gpt-4o",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "Hello!" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8 }
+        });
+
+        let response = make_reqwest_response(body.to_string());
+        let result = <Server as CoPilotChatCompletions>::chat_completions_no_sse(response)
+            .await
+            .expect("should not error");
+
+        assert_eq!(result.status(), 200);
+
+        let bytes = axum::body::to_bytes(result.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let parsed: OpenAIChatResponse = serde_json::from_slice(&bytes).unwrap();
+
+        assert_eq!(parsed.id, "chatcmpl-abc123");
+        assert_eq!(parsed.object, "chat.completion");
+        assert_eq!(parsed.model, "gpt-4o");
+        assert_eq!(parsed.created, 1700000000);
+        assert_eq!(parsed.choices.len(), 1);
+        assert_eq!(parsed.choices[0].index, 0);
+        assert_eq!(parsed.choices[0].finish_reason, "stop");
+        assert_eq!(
+            parsed.choices[0].message.content,
+            Some("Hello!".to_string())
+        );
+        assert_eq!(parsed.choices[0].message.role, "assistant");
+        assert_eq!(parsed.usage.prompt_tokens, 5);
+        assert_eq!(parsed.usage.completion_tokens, 3);
+        assert_eq!(parsed.usage.total_tokens, 8);
+    }
+
+    #[tokio::test]
+    async fn test_no_sse_uses_current_time_when_created_missing() {
+        let before = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let body = serde_json::json!({
+            "id": "chatcmpl-notimestamp",
+            "model": "gpt-4o",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "Hi" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+        });
+
+        let response = make_reqwest_response(body.to_string());
+        let result = <Server as CoPilotChatCompletions>::chat_completions_no_sse(response)
+            .await
+            .unwrap();
+
+        let after = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let bytes = axum::body::to_bytes(result.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let parsed: OpenAIChatResponse = serde_json::from_slice(&bytes).unwrap();
+
+        assert!(
+            parsed.created >= before && parsed.created <= after,
+            "created ({}) must be between {} and {}",
+            parsed.created,
+            before,
+            after
+        );
+    }
+
+    #[tokio::test]
+    async fn test_no_sse_missing_usage_defaults_to_zero() {
+        let body = serde_json::json!({
+            "id": "chatcmpl-nousage",
+            "created": 1700000000u64,
+            "model": "gpt-4o",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "Hi" },
+                "finish_reason": "stop"
+            }]
+        });
+
+        let response = make_reqwest_response(body.to_string());
+        let result = <Server as CoPilotChatCompletions>::chat_completions_no_sse(response)
+            .await
+            .unwrap();
+
+        let bytes = axum::body::to_bytes(result.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let parsed: OpenAIChatResponse = serde_json::from_slice(&bytes).unwrap();
+
+        assert_eq!(parsed.usage.prompt_tokens, 0);
+        assert_eq!(parsed.usage.completion_tokens, 0);
+        assert_eq!(parsed.usage.total_tokens, 0);
+    }
+
+    #[tokio::test]
+    async fn test_no_sse_choice_index_falls_back_to_position() {
+        let body = serde_json::json!({
+            "id": "chatcmpl-idx",
+            "created": 1700000000u64,
+            "model": "gpt-4o",
+            "choices": [
+                {
+                    // no "index" field — should fall back to position 0
+                    "message": { "role": "assistant", "content": "first" },
+                    "finish_reason": "stop"
+                },
+                {
+                    "index": 7,  // explicit index — must be preserved
+                    "message": { "role": "assistant", "content": "second" },
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": { "prompt_tokens": 2, "completion_tokens": 2, "total_tokens": 4 }
+        });
+
+        let response = make_reqwest_response(body.to_string());
+        let result = <Server as CoPilotChatCompletions>::chat_completions_no_sse(response)
+            .await
+            .unwrap();
+
+        let bytes = axum::body::to_bytes(result.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let parsed: OpenAIChatResponse = serde_json::from_slice(&bytes).unwrap();
+
+        assert_eq!(parsed.choices[0].index, 0);
+        assert_eq!(parsed.choices[1].index, 7);
+    }
+
+    // -----------------------------------------------------------------------
+    // chat_completions_sse
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_sse_response_has_correct_content_type() {
+        let chunk = r#"{"id":"x","object":"chat.completion.chunk","created":1,"model":"gpt-4o","choices":[{"index":0,"delta":{"content":"Hi"},"finish_reason":null}]}"#;
+        let body = format!("data: {chunk}\ndata: [DONE]\n");
+
+        let response = make_reqwest_response(body);
+        let result = <Server as CoPilotChatCompletions>::chat_completions_sse(response)
+            .await
+            .expect("should not error");
+
+        assert_eq!(result.status(), 200);
+        let ct = result
+            .headers()
+            .get("content-type")
+            .expect("must have content-type")
+            .to_str()
+            .unwrap();
+        assert!(ct.contains("text/event-stream"), "must be SSE content-type");
+    }
+
+    #[tokio::test]
+    async fn test_sse_passthrough_data_lines() {
+        let chunk = r#"{"id":"x","object":"chat.completion.chunk","created":1,"model":"gpt-4o","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}"#;
+        let body = format!("data: {chunk}\ndata: [DONE]\n");
+
+        let response = make_reqwest_response(body);
+        let result = <Server as CoPilotChatCompletions>::chat_completions_sse(response)
+            .await
+            .unwrap();
+
+        let bytes = axum::body::to_bytes(result.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let raw = std::str::from_utf8(&bytes).unwrap();
+
+        // Each SSE event block is separated by "\n\n"; collect the data: lines.
+        let data_lines: Vec<&str> = raw
+            .split("\n\n")
+            .filter(|block| !block.trim().is_empty())
+            .filter_map(|block| {
+                block
+                    .lines()
+                    .find(|l| l.starts_with("data:"))
+                    .map(|l| l.trim_start_matches("data:").trim())
+            })
+            .collect();
+
+        assert_eq!(data_lines.len(), 2, "should have two data events");
+        assert_eq!(data_lines[0], chunk);
+        assert_eq!(data_lines[1], "[DONE]");
+    }
+
+    #[tokio::test]
+    async fn test_sse_empty_lines_are_not_emitted() {
+        let chunk = r#"{"id":"x","object":"chat.completion.chunk","created":1,"model":"gpt-4o","choices":[{"index":0,"delta":{"content":"Hi"},"finish_reason":null}]}"#;
+        // Blank lines and comment lines between data lines must not produce events.
+        let body = format!("\ndata: {chunk}\n\ndata: [DONE]\n\n");
+
+        let response = make_reqwest_response(body);
+        let result = <Server as CoPilotChatCompletions>::chat_completions_sse(response)
+            .await
+            .unwrap();
+
+        let bytes = axum::body::to_bytes(result.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let raw = std::str::from_utf8(&bytes).unwrap();
+
+        let data_lines: Vec<&str> = raw
+            .split("\n\n")
+            .filter(|block| !block.trim().is_empty())
+            .filter_map(|block| {
+                block
+                    .lines()
+                    .find(|l| l.starts_with("data:"))
+                    .map(|l| l.trim_start_matches("data:").trim())
+            })
+            .collect();
+
+        assert_eq!(data_lines.len(), 2);
+        assert_eq!(data_lines[0], chunk);
+        assert_eq!(data_lines[1], "[DONE]");
+    }
+
+    #[tokio::test]
+    async fn test_sse_multiple_chunks_all_forwarded() {
+        let chunk1 = r#"{"id":"x","object":"chat.completion.chunk","created":1700000001,"model":"gpt-4o","choices":[{"index":0,"delta":{"content":"Foo"},"finish_reason":null}]}"#;
+        let chunk2 = r#"{"id":"x","object":"chat.completion.chunk","created":1700000002,"model":"gpt-4o","choices":[{"index":0,"delta":{"content":"Bar"},"finish_reason":null}]}"#;
+        let body = format!("data: {chunk1}\ndata: {chunk2}\ndata: [DONE]\n");
+
+        let response = make_reqwest_response(body);
+        let result = <Server as CoPilotChatCompletions>::chat_completions_sse(response)
+            .await
+            .unwrap();
+
+        let bytes = axum::body::to_bytes(result.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let raw = std::str::from_utf8(&bytes).unwrap();
+
+        let data_lines: Vec<&str> = raw
+            .split("\n\n")
+            .filter(|block| !block.trim().is_empty())
+            .filter_map(|block| {
+                block
+                    .lines()
+                    .find(|l| l.starts_with("data:"))
+                    .map(|l| l.trim_start_matches("data:").trim())
+            })
+            .collect();
+
+        assert_eq!(data_lines.len(), 3, "chunk1 + chunk2 + [DONE]");
+        assert_eq!(data_lines[0], chunk1);
+        assert_eq!(data_lines[1], chunk2);
+        assert_eq!(data_lines[2], "[DONE]");
+    }
 
     // translate_sse_line tests
 
@@ -238,7 +543,7 @@ mod tests {
     #[test]
     fn test_parse_copilot_response_without_created() {
         // Test parsing a Copilot response without the optional 'created' field
-        let json = include_str!("resources/chat_completions_response.json");
+        let json = include_str!("../../resources/chat_completions_response.json");
         let result = serde_json::from_str::<CopilotChatResponse>(json);
 
         assert!(

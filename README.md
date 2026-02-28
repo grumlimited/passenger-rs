@@ -46,7 +46,7 @@ let agent = AgentBuilder::new(model)
     .build();
 ```
 
-### Open WebUI
+## 💡 Use Case: Open WebUI Integration
 
 The proxy supports streaming and can be used with [Open WebUI](https://docs.openwebui.com/) as a chat interface over GitHub Copilot models.
 
@@ -96,16 +96,18 @@ Set any non-empty string as the API key (the proxy does not validate it). Open W
 
 ## 🏁 Quick Start
 
-### 1. Build the project
+### 1. Download
+
+Download a pre-built binary from the releases page, or install the packaged version for CentOS or Arch Linux.
 
 ```bash
-cargo build --release
+chmod +x ./passenger-rs # if using binary straight
 ```
 
 ### 2. Authenticate with GitHub
 
 ```bash
-./target/release/passenger-rs -- --login
+./passenger-rs -- --login
 ```
 
 This will:
@@ -117,7 +119,7 @@ This will:
 ### 3. Start the proxy server
 
 ```bash
-./target/release/passenger-rs
+./passenger-rs
 ```
 
 The server will start on `http://127.0.0.1:8081` by default.
@@ -574,7 +576,7 @@ Another process is using port 8081.
 ```bash
 # Option 1: Change port in config.toml
 [server]
-port = 8082
+port = 8081
 
 # Option 2: Find and kill the process
 lsof -ti:8081 | xargs kill -9

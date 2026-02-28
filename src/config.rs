@@ -70,7 +70,7 @@ mod tests {
             "https://models.dev/api.json"
         );
         assert_eq!(config.copilot.api_base_url, "https://api.githubcopilot.com");
-        assert_eq!(config.server.port, 8082);
+        assert_eq!(config.server.port, 8081);
         assert_eq!(config.server.host, "127.0.0.1");
     }
 }

@@ -2,7 +2,7 @@ pub mod models;
 pub mod utils;
 
 use crate::openai::completion::models::{Tool, ToolCall, ToolChoice};
-use crate::server_chat_completion::{CopilotChoice, CopilotUsage};
+use crate::server::openai::chat_completion::{CopilotChoice, CopilotUsage};
 use serde::{Deserialize, Serialize};
 
 /// Copilot chat completion request

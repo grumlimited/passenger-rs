@@ -57,16 +57,16 @@ jobs:
 
       - name: md5sum
         run: |
-          md5sum target/release/passenger-rs > target/release/passenger-rs-${{ github.event.release.tag_name }}.md5sum
-          cp target/release/passenger-rs target/release/passenger-rs-${{ github.event.release.tag_name }}
+          md5sum target/release/passenger-rs > target/release/passenger-rs.md5sum
+          cp target/release/passenger-rs target/release/passenger-rs
 
       - name: Upload binary
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
-            target/release/passenger-rs-${{ github.event.release.tag_name }}
-            target/release/passenger-rs-${{ github.event.release.tag_name }}.md5sum
+            target/release/passenger-rs
+            target/release/passenger-rs.md5sum
 
   ubuntu:
     runs-on: ubuntu-latest
@@ -93,7 +93,7 @@ jobs:
           mkdir -p ${DESTDIR}/opt/passenger-rs/etc
           mkdir -p ${DESTDIR}/usr/lib/systemd/user
           
-          curl -L https://github.com/grumlimited/passenger-rs/releases/download/${{ github.event.release.tag_name }}/passenger-rs-${{ github.event.release.tag_name }} -o ${DESTDIR}/opt/passenger-rs/bin/passenger-rs
+          curl -L https://github.com/grumlimited/passenger-rs/releases/download/${{ github.event.release.tag_name }}/passenger-rs -o ${DESTDIR}/opt/passenger-rs/bin/passenger-rs
           chmod +x ${DESTDIR}/opt/passenger-rs/bin/passenger-rs
           echo Downloaded to ${DESTDIR}/opt/passenger-rs/bin/passenger-rs
           
@@ -140,7 +140,7 @@ jobs:
 
       - name: Prepare arch package metadata
         run: |
-          curl -v -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -L https://github.com/grumlimited/passenger-rs/releases/download/${{ github.event.release.tag_name }}/passenger-rs-${{ github.event.release.tag_name }} -o build-aux/arch/passenger-rs-bin/passenger-rs
+          curl -v -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -L https://github.com/grumlimited/passenger-rs/releases/download/${{ github.event.release.tag_name }}/passenger-rs -o build-aux/arch/passenger-rs-bin/passenger-rs
           cp config.toml build-aux/arch/passenger-rs-bin/
           
           cd build-aux/arch/passenger-rs-bin/
