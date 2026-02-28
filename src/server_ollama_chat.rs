@@ -119,7 +119,7 @@ impl OllamaChatEndpoint for Server {
             let ndjson_stream = byte_stream
                 .map_err(|e: reqwest::Error| {
                     error!("Error reading streaming response from Copilot: {}", e);
-                    std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+                    std::io::Error::other(e.to_string())
                 })
                 .flat_map(move |result: Result<tokio_util::bytes::Bytes, std::io::Error>| {
                     let model = model.clone();
