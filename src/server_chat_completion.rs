@@ -536,6 +536,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "duplicate_tool_messages_as_user is disabled; Copilot intermittently returns empty choices with role:tool messages"]
     fn test_prepare_for_copilot_duplicates_tool_messages() {
         // Test that tool messages are duplicated as user messages appended after last tool
         let mut request = OpenAIChatRequest {
@@ -605,6 +606,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "duplicate_tool_messages_as_user is disabled; Copilot intermittently returns empty choices with role:tool messages"]
     fn test_prepare_for_copilot_handles_multiple_tools() {
         // Test duplication of multiple tool messages - all user duplicates appended after last tool
         let mut request = OpenAIChatRequest {
@@ -721,6 +723,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "duplicate_tool_messages_as_user is disabled; Copilot intermittently returns empty choices with role:tool messages"]
     fn test_prepare_for_copilot_handles_missing_fields() {
         // Test duplication when tool message has missing optional fields
         let mut request = OpenAIChatRequest {
