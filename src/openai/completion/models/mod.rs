@@ -23,7 +23,7 @@ pub struct OpenAIChatRequest {
 }
 
 /// OpenAI-compatible chat completion response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct OpenAIChatResponse {
     pub id: String,
     pub object: String,
@@ -95,14 +95,14 @@ pub struct OpenAIMessage {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct OpenAIChoice {
     pub index: u32,
     pub message: OpenAIMessage,
     pub finish_reason: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct OpenAIUsage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
