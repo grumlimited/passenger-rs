@@ -238,7 +238,7 @@ mod tests {
     #[test]
     fn test_parse_copilot_response_without_created() {
         // Test parsing a Copilot response without the optional 'created' field
-        let json = include_str!("../resources/chat_completions_response.json");
+        let json = include_str!("../../resources/chat_completions_response.json");
         let result = serde_json::from_str::<CopilotChatResponse>(json);
 
         assert!(

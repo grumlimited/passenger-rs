@@ -355,7 +355,7 @@ mod tests {
     use crate::copilot::CopilotMessage;
     use crate::openai::completion::models::FunctionDefinition;
     use crate::openai::completion::models::{OpenAIChatRequest, Tool};
-    use crate::server::chat_completion::{CopilotChoice, CopilotUsage};
+    use crate::server::openai::chat_completion::{CopilotChoice, CopilotUsage};
 
     // -----------------------------------------------------------------------
     // translate_sse_line — streaming conversion tests

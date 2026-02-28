@@ -3,18 +3,16 @@ use crate::auth::CopilotTokenResponse;
 use crate::config::Config;
 use crate::token_manager;
 
-pub mod chat_completion;
 pub mod copilot;
-pub mod list_models;
 pub mod ollama;
-pub mod openai_responses_chat;
+pub mod openai;
 
-use self::chat_completion::*;
-use self::list_models::*;
 use self::ollama::chat::*;
 use self::ollama::tags::*;
 use self::ollama::version::*;
-use self::openai_responses_chat::*;
+use self::openai::chat_completion::*;
+use self::openai::list_models::*;
+use self::openai::responses_chat::*;
 use axum::{
     Json, Router,
     http::StatusCode,
