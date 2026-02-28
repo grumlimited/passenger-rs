@@ -574,7 +574,7 @@ Another process is using port 8081.
 ```bash
 # Option 1: Change port in config.toml
 [server]
-port = 8082
+port = 8081
 
 # Option 2: Find and kill the process
 lsof -ti:8081 | xargs kill -9
