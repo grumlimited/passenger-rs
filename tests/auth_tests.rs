@@ -3,6 +3,7 @@ use passenger_rs::config::Config;
 use reqwest::Client;
 
 #[tokio::test]
+#[ignore = "makes a live API call to GitHub; requires network access and a valid client_id"]
 async fn test_request_device_code() {
     let config = Config::from_file("config.toml").expect("Failed to load config");
     let client = Client::new();

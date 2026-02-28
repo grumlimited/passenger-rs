@@ -145,7 +145,7 @@ impl OpenAIChatRequest {
     ///
     /// This approach trades token consumption for reliability, ensuring Copilot both
     /// validates the tool calling chain AND consistently processes the results.
-    fn duplicate_tool_messages_as_user(&mut self) {
+    fn _duplicate_tool_messages_as_user(&mut self) {
         let mut user_duplicates = Vec::new();
         let mut last_tool_index = None;
 

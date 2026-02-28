@@ -28,13 +28,19 @@ impl OpenAiResponsesEndpoint for Server {
          * It is causing serde to fail on doing serde_json::from_str::<PromptRequest>(&request_as_text), yet
          * it is somewhat more laxist when parsing it into a json_serde::Value.
          */
-        let request_as_value: Value = serde_json::from_str(&request_as_text).unwrap();
+        let request_as_value: Value = serde_json::from_str(&request_as_text).map_err(|e| {
+            error!("Failed to parse request body as JSON: {}", e);
+            AppError::BadRequest(format!("Invalid JSON: {}", e))
+        })?;
         debug!(
             "request_as_value:\n{}",
             serde_json::to_string_pretty(&request_as_value).unwrap()
         );
 
-        let request: PromptRequest = serde_json::from_value(request_as_value).unwrap();
+        let request: PromptRequest = serde_json::from_value(request_as_value).map_err(|e| {
+            error!("Failed to deserialize request into PromptRequest: {}", e);
+            AppError::BadRequest(format!("Invalid request structure: {}", e))
+        })?;
 
         debug!(
             "original_openai_request:\n{}",

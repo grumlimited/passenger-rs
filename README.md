@@ -343,7 +343,7 @@ OpenAI-compatible chat completions endpoint.
   }
 }
 ```
-**Note:** Streaming is not yet supported. The `stream` parameter is ignored.
+**Note:** Streaming is supported. When `"stream": true` is set, the response is returned as server-sent events (SSE) using `text/event-stream`.
 
 ### POST /v1/api/chat
 
