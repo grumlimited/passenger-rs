@@ -8,6 +8,8 @@ use axum::{Json, extract::State};
 use futures_util::{StreamExt as _, TryStreamExt as _};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use reqwest::Error;
+use tokio_util::bytes::Bytes;
 use tracing::debug;
 use tracing::log::{error, info, warn};
 
@@ -117,39 +119,37 @@ impl OllamaChatEndpoint for Server {
             // The final Copilot chunk is "data: [DONE]" — we emit the terminal
             // Ollama object (done: true) at that point.
             let ndjson_stream = byte_stream
-                .map_err(|e: reqwest::Error| {
+                .map_err(|e: Error| {
                     error!("Error reading streaming response from Copilot: {}", e);
                     std::io::Error::other(e.to_string())
                 })
-                .flat_map(move |result: Result<tokio_util::bytes::Bytes, std::io::Error>| {
-                    let model = model.clone();
-                    let lines: Vec<Result<tokio_util::bytes::Bytes, std::io::Error>> = match result {
-                        Err(e) => vec![Err(e)],
-                        Ok(bytes) => {
-                            let text = String::from_utf8_lossy(&bytes).into_owned();
-                            text.lines()
-                                .filter_map(|line| match translate_sse_line(&model, line) {
-                                    SseLineOutput::Line(s) => {
-                                        Some(Ok(tokio_util::bytes::Bytes::from(s)))
-                                    }
-                                    SseLineOutput::Skip | SseLineOutput::Unexpected(_) => None,
-                                })
-                                .collect()
-                        }
-                    };
-                    futures_util::stream::iter(lines)
-                });
+                .flat_map(
+                    move |result| {
+                        let model = model.clone();
+                        let lines: Vec<Result<Bytes, std::io::Error>> =
+                            match result {
+                                Err(e) => vec![Err(e)],
+                                Ok(bytes) => {
+                                    let text = String::from_utf8_lossy(&bytes).into_owned();
+                                    text.lines()
+                                        .filter_map(|line| match translate_sse_line(&model, line) {
+                                            SseLineOutput::Line(s) => {
+                                                Some(Ok(Bytes::from(s)))
+                                            }
+                                            SseLineOutput::Skip | SseLineOutput::Unexpected(_) => {
+                                                None
+                                            }
+                                        })
+                                        .collect()
+                                }
+                            };
+                        futures_util::stream::iter(lines)
+                    },
+                );
 
             info!("Streaming Ollama chat response");
             let body = Body::from_stream(ndjson_stream);
-            Ok((
-                [(
-                    header::CONTENT_TYPE,
-                    "application/x-ndjson",
-                )],
-                body,
-            )
-                .into_response())
+            Ok(([(header::CONTENT_TYPE, "application/x-ndjson")], body).into_response())
         } else {
             let copilot_response: CopilotChatResponse = response.json().await.map_err(|e| {
                 error!("Failed to parse Copilot response: {}", e);
@@ -264,10 +264,7 @@ pub(crate) fn translate_sse_line(model: &str, line: &str) -> SseLineOutput {
                     SseLineOutput::Line(json)
                 }
                 Err(e) => {
-                    warn!(
-                        "Failed to parse Copilot SSE chunk: {} — {}",
-                        e, payload
-                    );
+                    warn!("Failed to parse Copilot SSE chunk: {} — {}", e, payload);
                     SseLineOutput::Unexpected(payload.to_string())
                 }
             }
@@ -417,12 +414,16 @@ mod tests {
 
         let obj = parse_line(&line);
         assert!(!obj.done);
-        assert_eq!(obj.message.content, "", "null content should default to empty string");
+        assert_eq!(
+            obj.message.content, "",
+            "null content should default to empty string"
+        );
     }
 
     #[test]
     fn test_sse_chunk_with_empty_choices_defaults_to_empty_string() {
-        let payload = r#"{"id":"x","object":"chat.completion.chunk","created":1,"model":"m","choices":[]}"#;
+        let payload =
+            r#"{"id":"x","object":"chat.completion.chunk","created":1,"model":"m","choices":[]}"#;
         let line = format!("data: {}", payload);
 
         let obj = parse_line(&line);

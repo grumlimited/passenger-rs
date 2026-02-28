@@ -9,6 +9,7 @@ use axum::response::IntoResponse;
 use axum::{Json, extract::State};
 use futures_util::{StreamExt as _, TryStreamExt as _};
 use serde::{Deserialize, Serialize};
+use std::io::Error;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::log::{error, info, warn};
@@ -41,7 +42,7 @@ impl CoPilotChatCompletions for Server {
         request: Json<OpenAIChatRequest>,
     ) -> Result<axum::response::Response, AppError> {
         let mut request = request.0;
-        
+
         request.prepare_for_copilot();
         info!(
             "Received chat completion request for model: {} (stream={})",
@@ -78,10 +79,10 @@ impl CoPilotChatCompletions for Server {
             let sse_stream = byte_stream
                 .map_err(|e: reqwest::Error| {
                     error!("Error reading streaming response from Copilot: {}", e);
-                    std::io::Error::other(e.to_string())
+                    Error::other(e.to_string())
                 })
-                .flat_map(|result: Result<tokio_util::bytes::Bytes, std::io::Error>| {
-                    let events: Vec<Result<Event, std::io::Error>> = match result {
+                .flat_map(|result| {
+                    let events: Vec<Result<Event, Error>> = match result {
                         Err(e) => vec![Err(e)],
                         Ok(bytes) => {
                             let text = String::from_utf8_lossy(&bytes).into_owned();
@@ -106,14 +107,10 @@ impl CoPilotChatCompletions for Server {
             // ----------------------------------------------------------------
             // Non-streaming path: buffer the full response and return JSON.
             // ----------------------------------------------------------------
-            let copilot_response: CopilotChatResponse =
-                response.json().await.map_err(|e| {
-                    error!("Failed to parse Copilot response: {}", e);
-                    AppError::InternalServerError(format!(
-                        "Failed to parse Copilot response: {}",
-                        e
-                    ))
-                })?;
+            let copilot_response: CopilotChatResponse = response.json().await.map_err(|e| {
+                error!("Failed to parse Copilot response: {}", e);
+                AppError::InternalServerError(format!("Failed to parse Copilot response: {}", e))
+            })?;
 
             let since_the_epoch = SystemTime::now()
                 .duration_since(UNIX_EPOCH)

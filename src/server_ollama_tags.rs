@@ -32,9 +32,8 @@ pub struct OllamaModelDetails {
 
 #[allow(async_fn_in_trait)]
 pub trait OllamaTags {
-    async fn ollama_tags(
-        state: State<Arc<AppState>>,
-    ) -> Result<Json<OllamaTagsResponse>, AppError>;
+    async fn ollama_tags(state: State<Arc<AppState>>)
+    -> Result<Json<OllamaTagsResponse>, AppError>;
 }
 
 impl OllamaTags for Server {
@@ -83,22 +82,20 @@ impl OllamaTags for Server {
         let models = copilot_response
             .models
             .into_iter()
-            .map(|m| {
-                OllamaModel {
-                    name: m.id.clone(),
-                    model: m.id,
-                    modified_at: "1970-01-01T00:00:00Z".to_string(),
-                    size: 0,
-                    digest: String::new(),
-                    details: OllamaModelDetails {
-                        parent_model: String::new(),
-                        format: "api".to_string(),
-                        family: m.family.clone(),
-                        families: vec![m.family],
-                        parameter_size: String::new(),
-                        quantization_level: String::new(),
-                    },
-                }
+            .map(|m| OllamaModel {
+                name: m.id.clone(),
+                model: m.id,
+                modified_at: "1970-01-01T00:00:00Z".to_string(),
+                size: 0,
+                digest: String::new(),
+                details: OllamaModelDetails {
+                    parent_model: String::new(),
+                    format: "api".to_string(),
+                    family: m.family.clone(),
+                    families: vec![m.family],
+                    parameter_size: String::new(),
+                    quantization_level: String::new(),
+                },
             })
             .collect();
 
