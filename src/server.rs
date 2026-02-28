@@ -4,6 +4,8 @@ use crate::config::Config;
 use crate::server_chat_completion::*;
 use crate::server_list_models::*;
 use crate::server_ollama_chat::*;
+use crate::server_ollama_tags::*;
+use crate::server_ollama_version::*;
 use crate::server_openai_responses_chat::*;
 use crate::{server, token_manager};
 use axum::{
@@ -14,6 +16,7 @@ use axum::{
 };
 use reqwest::Client;
 use std::sync::Arc;
+use axum::extract::Path;
 use tracing::log::error;
 
 /// Shared application state
@@ -78,6 +81,8 @@ impl Server {
         Router::new()
             .route("/v1/chat/completions", post(Self::chat_completions))
             .route("/v1/api/chat", post(Self::ollama_chat))
+            .route("/v1/api/tags", get(Self::ollama_tags))
+            .route("/v1/api/version", get(Self::ollama_version))
             .route("/v1/models", get(Self::list_models))
             .route("/v1/responses", post(Self::openai_responses_chat))
             .route("/health", get(health_check))
