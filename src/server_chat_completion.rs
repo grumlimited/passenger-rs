@@ -86,16 +86,18 @@ impl CoPilotChatCompletions for Server {
                         Err(e) => vec![Err(e)],
                         Ok(bytes) => {
                             let text = String::from_utf8_lossy(&bytes).into_owned();
-                            let mut events = Vec::new();
-                            for line in text.lines() {
-                                if let Some(payload) = line.strip_prefix("data: ") {
-                                    // payload is the bare JSON chunk (or "[DONE]")
-                                    events.push(Ok(Event::default().data(payload)));
-                                } else if !line.trim().is_empty() {
-                                    warn!("Unexpected SSE line from Copilot: {}", line);
-                                }
-                            }
-                            events
+                            text.lines()
+                                .filter_map(|line| match translate_sse_line(line) {
+                                    ChatSseLineOutput::Data(payload) => {
+                                        Some(Ok(Event::default().data(payload)))
+                                    }
+                                    ChatSseLineOutput::Skip => None,
+                                    ChatSseLineOutput::Unexpected(raw) => {
+                                        warn!("Unexpected SSE line from Copilot: {}", raw);
+                                        None
+                                    }
+                                })
+                                .collect()
                         }
                     };
                     futures_util::stream::iter(events)
@@ -104,9 +106,7 @@ impl CoPilotChatCompletions for Server {
             info!("Streaming chat completion response");
             Ok(Sse::new(sse_stream).into_response())
         } else {
-            // ----------------------------------------------------------------
             // Non-streaming path: buffer the full response and return JSON.
-            // ----------------------------------------------------------------
             let copilot_response: CopilotChatResponse = response.json().await.map_err(|e| {
                 error!("Failed to parse Copilot response: {}", e);
                 AppError::InternalServerError(format!("Failed to parse Copilot response: {}", e))
@@ -165,10 +165,72 @@ impl CoPilotChatCompletions for Server {
     }
 }
 
+/// Result of processing a single Copilot SSE line for the OpenAI chat completions endpoint.
+#[derive(Debug, PartialEq)]
+pub(crate) enum ChatSseLineOutput {
+    /// A bare payload string (the part after `"data: "`) ready to emit as an SSE data event.
+    Data(String),
+    /// The line was empty or whitespace-only — nothing to emit.
+    Skip,
+    /// The line did not start with `"data: "` and was not empty (logged as a warning by the caller).
+    Unexpected(String),
+}
+
+/// Translate one line of Copilot SSE output for the OpenAI chat completions passthrough.
+///
+/// * `data: <payload>` → `ChatSseLineOutput::Data(payload)`
+/// * empty / whitespace → `ChatSseLineOutput::Skip`
+/// * anything else     → `ChatSseLineOutput::Unexpected(line)`
+pub(crate) fn translate_sse_line(line: &str) -> ChatSseLineOutput {
+    if let Some(payload) = line.strip_prefix("data: ") {
+        ChatSseLineOutput::Data(payload.to_string())
+    } else if line.trim().is_empty() {
+        ChatSseLineOutput::Skip
+    } else {
+        ChatSseLineOutput::Unexpected(line.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::openai::completion::models::{FunctionCall, ToolCall};
+
+    // translate_sse_line tests
+
+    #[test]
+    fn test_sse_data_line_returns_payload() {
+        let result = translate_sse_line("data: {\"id\":\"1\"}");
+        assert_eq!(result, ChatSseLineOutput::Data("{\"id\":\"1\"}".to_string()));
+    }
+
+    #[test]
+    fn test_sse_done_line_returns_payload() {
+        let result = translate_sse_line("data: [DONE]");
+        assert_eq!(result, ChatSseLineOutput::Data("[DONE]".to_string()));
+    }
+
+    #[test]
+    fn test_sse_empty_line_is_skipped() {
+        assert_eq!(translate_sse_line(""), ChatSseLineOutput::Skip);
+        assert_eq!(translate_sse_line("   "), ChatSseLineOutput::Skip);
+        assert_eq!(translate_sse_line("\t"), ChatSseLineOutput::Skip);
+    }
+
+    #[test]
+    fn test_sse_non_data_line_is_unexpected() {
+        match translate_sse_line("event: ping") {
+            ChatSseLineOutput::Unexpected(raw) => assert_eq!(raw, "event: ping"),
+            other => panic!("expected Unexpected, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_sse_data_prefix_only_returns_empty_payload() {
+        // "data: " with nothing after the space is a valid (empty) payload
+        let result = translate_sse_line("data: ");
+        assert_eq!(result, ChatSseLineOutput::Data(String::new()));
+    }
 
     #[test]
     fn test_parse_copilot_response_without_created() {
