@@ -9,7 +9,7 @@ oauth_token_url = "https://github.com/login/oauth/access_token"
 copilot_token_url = "https://api.github.com/copilot_internal/v2/token"
 
 # GitHub Copilot token endpoint
-copilot_models_url = "https://models.github.ai/catalog/models"
+copilot_models_url = "https://models.dev/api.json"
 
 # GitHub Copilot public client ID (same for all users)
 client_id = "Iv1.b507a08c87ecfe98"
@@ -20,7 +20,7 @@ api_base_url = "https://api.githubcopilot.com"
 
 [server]
 # Port to listen on
-port = 8081
+port = 8082
 
 # Host to bind to
 host = "127.0.0.1"

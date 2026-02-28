@@ -5,11 +5,14 @@ use crate::openai::completion::models::{
 };
 use crate::server::{AppError, AppState, Server};
 use crate::server_copilot::CopilotIntegration;
+use axum::response::IntoResponse;
 use axum::{Json, extract::State};
+use futures_util::{StreamExt as _, TryStreamExt as _};
 use serde::{Deserialize, Serialize};
+use std::io::Error;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::log::{error, info};
+use tracing::log::{error, info, warn};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CopilotChoice {
@@ -30,20 +33,23 @@ pub(crate) trait CoPilotChatCompletions: CopilotIntegration {
     async fn chat_completions(
         state: State<Arc<AppState>>,
         request: Json<OpenAIChatRequest>,
-    ) -> Result<Json<OpenAIChatResponse>, AppError>;
+    ) -> Result<axum::response::Response, AppError>;
 }
 
 impl CoPilotChatCompletions for Server {
     async fn chat_completions(
         State(state): State<Arc<AppState>>,
         request: Json<OpenAIChatRequest>,
-    ) -> Result<Json<OpenAIChatResponse>, AppError> {
+    ) -> Result<axum::response::Response, AppError> {
         let mut request = request.0;
+
         request.prepare_for_copilot();
         info!(
-            "Received chat completion request for model: {}",
-            request.model
+            "Received chat completion request for model: {} (stream={})",
+            request.model, request.stream
         );
+
+        let is_stream = request.stream;
 
         // Get a valid Copilot token
         let token = Self::get_token(state.clone()).await?;
@@ -61,60 +67,127 @@ impl CoPilotChatCompletions for Server {
             return Self::handle_errors(response).await;
         }
 
-        let copilot_response: CopilotChatResponse = response.json().await.map_err(|e| {
-            error!("Failed to parse Copilot response: {}", e);
-            AppError::InternalServerError(format!("Failed to parse Copilot response: {}", e))
-        })?;
+        if is_stream {
+            use axum::response::sse::{Event, Sse};
 
-        let since_the_epoch = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time should go forward");
+            let byte_stream = response.bytes_stream();
 
-        // Transform Copilot response to OpenAI format
-        let openai_response = OpenAIChatResponse {
-            id: copilot_response.id,
-            object: "chat.completion".to_string(),
-            // IMPORTANT: Handle optional `created` field from GitHub Copilot API
-            // - GitHub Copilot's response may omit the `created` field
-            // - OpenAI's API spec requires `created` as a mandatory integer (Unix timestamp)
-            // - We default to the current timestamp if Copilot doesn't provide one
-            created: copilot_response
-                .created
-                .unwrap_or(since_the_epoch.as_secs()),
-            model: copilot_response.model,
-            choices: copilot_response
-                .choices
-                .into_iter()
-                .enumerate()
-                .map(|(i, c)| OpenAIChoice {
-                    // Use the index from Copilot if available, otherwise use position
-                    index: c.index.unwrap_or(i as u32),
-                    message: OpenAIMessage {
-                        role: c.message.role,
-                        content: c.message.content,
-                        tool_calls: c.message.tool_calls,
-                        tool_call_id: c.message.tool_call_id,
-                        name: c.message.name,
-                    },
-                    finish_reason: c.finish_reason,
+            // Each chunk from Copilot is raw SSE text, potentially containing
+            // one or more lines of the form "data: <json>\n\n".
+            // We split on newlines, strip the "data: " prefix from each line,
+            // and re-emit the bare JSON payload as an axum SSE Event.
+            let sse_stream = byte_stream
+                .map_err(|e: reqwest::Error| {
+                    error!("Error reading streaming response from Copilot: {}", e);
+                    Error::other(e.to_string())
                 })
-                .collect(),
-            usage: copilot_response
-                .usage
-                .map(|u| OpenAIUsage {
-                    prompt_tokens: u.prompt_tokens,
-                    completion_tokens: u.completion_tokens,
-                    total_tokens: u.total_tokens,
-                })
-                .unwrap_or(OpenAIUsage {
-                    prompt_tokens: 0,
-                    completion_tokens: 0,
-                    total_tokens: 0,
-                }),
-        };
+                .flat_map(|result| {
+                    let events: Vec<Result<Event, Error>> = match result {
+                        Err(e) => vec![Err(e)],
+                        Ok(bytes) => {
+                            let text = String::from_utf8_lossy(&bytes).into_owned();
+                            text.lines()
+                                .filter_map(|line| match translate_sse_line(line) {
+                                    ChatSseLineOutput::Data(payload) => {
+                                        Some(Ok(Event::default().data(payload)))
+                                    }
+                                    ChatSseLineOutput::Skip => None,
+                                    ChatSseLineOutput::Unexpected(raw) => {
+                                        warn!("Unexpected SSE line from Copilot: {}", raw);
+                                        None
+                                    }
+                                })
+                                .collect()
+                        }
+                    };
+                    futures_util::stream::iter(events)
+                });
 
-        info!("Successfully processed chat completion request");
-        Ok(Json(openai_response))
+            info!("Streaming chat completion response");
+            Ok(Sse::new(sse_stream).into_response())
+        } else {
+            // Non-streaming path: buffer the full response and return JSON.
+            let copilot_response: CopilotChatResponse = response.json().await.map_err(|e| {
+                error!("Failed to parse Copilot response: {}", e);
+                AppError::InternalServerError(format!("Failed to parse Copilot response: {}", e))
+            })?;
+
+            let since_the_epoch = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time should go forward");
+
+            // Transform Copilot response to OpenAI format
+            let openai_response = OpenAIChatResponse {
+                id: copilot_response.id,
+                object: "chat.completion".to_string(),
+                // IMPORTANT: Handle optional `created` field from GitHub Copilot API
+                // - GitHub Copilot's response may omit the `created` field
+                // - OpenAI's API spec requires `created` as a mandatory integer (Unix timestamp)
+                // - We default to the current timestamp if Copilot doesn't provide one
+                created: copilot_response
+                    .created
+                    .unwrap_or(since_the_epoch.as_secs()),
+                model: copilot_response.model,
+                choices: copilot_response
+                    .choices
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, c)| OpenAIChoice {
+                        // Use the index from Copilot if available, otherwise use position
+                        index: c.index.unwrap_or(i as u32),
+                        message: OpenAIMessage {
+                            role: c.message.role,
+                            content: c.message.content,
+                            tool_calls: c.message.tool_calls,
+                            tool_call_id: c.message.tool_call_id,
+                            name: c.message.name,
+                        },
+                        finish_reason: c.finish_reason,
+                    })
+                    .collect(),
+                usage: copilot_response
+                    .usage
+                    .map(|u| OpenAIUsage {
+                        prompt_tokens: u.prompt_tokens,
+                        completion_tokens: u.completion_tokens,
+                        total_tokens: u.total_tokens,
+                    })
+                    .unwrap_or(OpenAIUsage {
+                        prompt_tokens: 0,
+                        completion_tokens: 0,
+                        total_tokens: 0,
+                    }),
+            };
+
+            info!("Successfully processed chat completion request");
+            Ok(Json(openai_response).into_response())
+        }
+    }
+}
+
+/// Result of processing a single Copilot SSE line for the OpenAI chat completions endpoint.
+#[derive(Debug, PartialEq)]
+pub(crate) enum ChatSseLineOutput {
+    /// A bare payload string (the part after `"data: "`) ready to emit as an SSE data event.
+    Data(String),
+    /// The line was empty or whitespace-only — nothing to emit.
+    Skip,
+    /// The line did not start with `"data: "` and was not empty (logged as a warning by the caller).
+    Unexpected(String),
+}
+
+/// Translate one line of Copilot SSE output for the OpenAI chat completions passthrough.
+///
+/// * `data: <payload>` → `ChatSseLineOutput::Data(payload)`
+/// * empty / whitespace → `ChatSseLineOutput::Skip`
+/// * anything else     → `ChatSseLineOutput::Unexpected(line)`
+pub(crate) fn translate_sse_line(line: &str) -> ChatSseLineOutput {
+    if let Some(payload) = line.strip_prefix("data: ") {
+        ChatSseLineOutput::Data(payload.to_string())
+    } else if line.trim().is_empty() {
+        ChatSseLineOutput::Skip
+    } else {
+        ChatSseLineOutput::Unexpected(line.to_string())
     }
 }
 
@@ -122,6 +195,45 @@ impl CoPilotChatCompletions for Server {
 mod tests {
     use super::*;
     use crate::openai::completion::models::{FunctionCall, ToolCall};
+
+    // translate_sse_line tests
+
+    #[test]
+    fn test_sse_data_line_returns_payload() {
+        let result = translate_sse_line("data: {\"id\":\"1\"}");
+        assert_eq!(
+            result,
+            ChatSseLineOutput::Data("{\"id\":\"1\"}".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sse_done_line_returns_payload() {
+        let result = translate_sse_line("data: [DONE]");
+        assert_eq!(result, ChatSseLineOutput::Data("[DONE]".to_string()));
+    }
+
+    #[test]
+    fn test_sse_empty_line_is_skipped() {
+        assert_eq!(translate_sse_line(""), ChatSseLineOutput::Skip);
+        assert_eq!(translate_sse_line("   "), ChatSseLineOutput::Skip);
+        assert_eq!(translate_sse_line("\t"), ChatSseLineOutput::Skip);
+    }
+
+    #[test]
+    fn test_sse_non_data_line_is_unexpected() {
+        match translate_sse_line("event: ping") {
+            ChatSseLineOutput::Unexpected(raw) => assert_eq!(raw, "event: ping"),
+            other => panic!("expected Unexpected, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_sse_data_prefix_only_returns_empty_payload() {
+        // "data: " with nothing after the space is a valid (empty) payload
+        let result = translate_sse_line("data: ");
+        assert_eq!(result, ChatSseLineOutput::Data(String::new()));
+    }
 
     #[test]
     fn test_parse_copilot_response_without_created() {
@@ -424,6 +536,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "duplicate_tool_messages_as_user is disabled; Copilot intermittently returns empty choices with role:tool messages"]
     fn test_prepare_for_copilot_duplicates_tool_messages() {
         // Test that tool messages are duplicated as user messages appended after last tool
         let mut request = OpenAIChatRequest {
@@ -493,6 +606,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "duplicate_tool_messages_as_user is disabled; Copilot intermittently returns empty choices with role:tool messages"]
     fn test_prepare_for_copilot_handles_multiple_tools() {
         // Test duplication of multiple tool messages - all user duplicates appended after last tool
         let mut request = OpenAIChatRequest {
@@ -609,6 +723,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "duplicate_tool_messages_as_user is disabled; Copilot intermittently returns empty choices with role:tool messages"]
     fn test_prepare_for_copilot_handles_missing_fields() {
         // Test duplication when tool message has missing optional fields
         let mut request = OpenAIChatRequest {

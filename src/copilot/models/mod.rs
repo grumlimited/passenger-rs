@@ -1,4 +1,5 @@
 use serde::{Deserialize, Deserializer, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Serialize)]
 pub struct CopilotModelsResponse {
@@ -6,12 +7,26 @@ pub struct CopilotModelsResponse {
     pub models: Vec<CopilotModel>,
 }
 
+/// Deserialize from the models.dev API shape:
+/// { "github-copilot": { "models": { "<id>": { ... }, ... } } }
 impl<'de> Deserialize<'de> for CopilotModelsResponse {
     fn deserialize<D>(deserializer: D) -> Result<CopilotModelsResponse, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let models = Vec::<CopilotModel>::deserialize(deserializer)?;
+        #[derive(Deserialize)]
+        struct Root {
+            #[serde(rename = "github-copilot")]
+            github_copilot: GithubCopilot,
+        }
+
+        #[derive(Deserialize)]
+        struct GithubCopilot {
+            models: HashMap<String, CopilotModel>,
+        }
+
+        let root = Root::deserialize(deserializer)?;
+        let models = root.github_copilot.models.into_values().collect();
 
         Ok(CopilotModelsResponse { models })
     }
@@ -21,23 +36,35 @@ impl<'de> Deserialize<'de> for CopilotModelsResponse {
 pub struct CopilotModel {
     pub id: String,
     pub name: String,
-    pub publisher: String,
-    pub registry: String,
-    pub summary: String,
-    pub html_url: String,
-    pub version: String,
-    pub capabilities: Vec<String>,
-    pub limits: CopilotModelLimits,
-    pub rate_limit_tier: String,
-    pub supported_input_modalities: Vec<String>,
-    pub supported_output_modalities: Vec<String>,
-    pub tags: Vec<String>,
+    pub family: String,
+    #[serde(default)]
+    pub tool_call: bool,
+    #[serde(default)]
+    pub reasoning: bool,
+    #[serde(default)]
+    pub attachment: bool,
+    #[serde(default)]
+    pub open_weights: bool,
+    #[serde(default)]
+    pub modalities: CopilotModelModalities,
+    #[serde(default)]
+    pub limit: CopilotModelLimit,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct CopilotModelLimits {
-    max_input_tokens: u64,
-    max_output_tokens: Option<u64>,
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub struct CopilotModelModalities {
+    #[serde(default)]
+    pub input: Vec<String>,
+    #[serde(default)]
+    pub output: Vec<String>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub struct CopilotModelLimit {
+    #[serde(default)]
+    pub context: u64,
+    #[serde(default)]
+    pub output: u64,
 }
 
 #[cfg(test)]
@@ -48,8 +75,8 @@ mod tests {
     fn test_parse_json_models_response() {
         let json = include_str!("../../resources/models_response.json");
 
-        let json = serde_json::from_str::<CopilotModelsResponse>(json).unwrap();
+        let result = serde_json::from_str::<CopilotModelsResponse>(json).unwrap();
 
-        assert_eq!(2, json.models.len())
+        assert_eq!(2, result.models.len())
     }
 }

@@ -3,11 +3,15 @@ use crate::copilot::CopilotChatResponse;
 use crate::openai::completion::models::OpenAIChatRequest;
 use crate::server::{AppError, AppState, Server};
 use crate::server_copilot::CopilotIntegration;
+use axum::response::IntoResponse;
 use axum::{Json, extract::State};
+use futures_util::{StreamExt as _, TryStreamExt as _};
+use reqwest::Error;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tokio_util::bytes::Bytes;
 use tracing::debug;
-use tracing::log::{error, info};
+use tracing::log::{error, info, warn};
 
 /// Ollama-compatible chat response
 #[derive(Debug, Serialize, Deserialize)]
@@ -62,14 +66,14 @@ pub(crate) trait OllamaChatEndpoint: CopilotIntegration {
     async fn ollama_chat(
         state: State<Arc<AppState>>,
         request: Json<OpenAIChatRequest>,
-    ) -> Result<Json<OllamaChatResponse>, AppError>;
+    ) -> Result<axum::response::Response, AppError>;
 }
 
 impl OllamaChatEndpoint for Server {
     async fn ollama_chat(
         State(state): State<Arc<AppState>>,
         request: Json<OpenAIChatRequest>,
-    ) -> Result<Json<OllamaChatResponse>, AppError> {
+    ) -> Result<axum::response::Response, AppError> {
         let mut request = request.0;
 
         // debug!(
@@ -78,6 +82,8 @@ impl OllamaChatEndpoint for Server {
         // );
 
         request.prepare_for_copilot();
+
+        let is_stream = request.stream;
 
         // Get a valid Copilot token
         let token = Self::get_token(state.clone()).await?;
@@ -97,25 +103,170 @@ impl OllamaChatEndpoint for Server {
 
         let status = response.status();
         if !status.is_success() {
-            return Self::handle_errors(response).await;
+            return Err(Self::handle_errors(response).await.unwrap_err());
         }
 
-        let copilot_response: CopilotChatResponse = response.json().await.map_err(|e| {
-            error!("Failed to parse Copilot response: {}", e);
-            AppError::InternalServerError(format!("Failed to parse Copilot response: {}", e))
-        })?;
+        if is_stream {
+            use axum::body::Body;
+            use axum::http::header;
 
-        debug!(
-            "copilot_response:\n{}",
-            serde_json::to_string_pretty(&copilot_response).unwrap()
-        );
+            let model = copilot_request.model.clone();
 
-        // Transform Copilot response to Ollama format
-        let ollama_response = transform_to_ollama_response(&copilot_request, copilot_response)?;
+            let byte_stream = response.bytes_stream();
 
-        info!("Successfully processed Ollama chat request");
+            // Each Copilot SSE chunk may carry one or more "data: <json>\n" lines.
+            // We parse the OpenAI-format delta and re-emit as Ollama NDJSON chunks.
+            // The final Copilot chunk is "data: [DONE]" — we emit the terminal
+            // Ollama object (done: true) at that point.
+            let ndjson_stream = byte_stream
+                .map_err(|e: Error| {
+                    error!("Error reading streaming response from Copilot: {}", e);
+                    std::io::Error::other(e.to_string())
+                })
+                .flat_map(move |result| {
+                    let model = model.clone();
+                    let lines: Vec<Result<Bytes, std::io::Error>> = match result {
+                        Err(e) => vec![Err(e)],
+                        Ok(bytes) => {
+                            let text = String::from_utf8_lossy(&bytes).into_owned();
+                            text.lines()
+                                .filter_map(|line| match translate_sse_line(&model, line) {
+                                    SseLineOutput::Line(s) => Some(Ok(Bytes::from(s))),
+                                    SseLineOutput::Skip | SseLineOutput::Unexpected(_) => None,
+                                })
+                                .collect()
+                        }
+                    };
+                    futures_util::stream::iter(lines)
+                });
 
-        Ok(Json(ollama_response))
+            info!("Streaming Ollama chat response");
+            let body = Body::from_stream(ndjson_stream);
+            Ok(([(header::CONTENT_TYPE, "application/x-ndjson")], body).into_response())
+        } else {
+            let copilot_response: CopilotChatResponse = response.json().await.map_err(|e| {
+                error!("Failed to parse Copilot response: {}", e);
+                AppError::InternalServerError(format!("Failed to parse Copilot response: {}", e))
+            })?;
+
+            debug!(
+                "copilot_response:\n{}",
+                serde_json::to_string_pretty(&copilot_response).unwrap()
+            );
+
+            // Transform Copilot response to Ollama format
+            let ollama_response = transform_to_ollama_response(&copilot_request, copilot_response)?;
+
+            info!("Successfully processed Ollama chat request");
+
+            Ok(Json(ollama_response).into_response())
+        }
+    }
+}
+
+/// Minimal structs to deserialize OpenAI-format SSE delta chunks from Copilot
+#[derive(Debug, Deserialize)]
+struct OpenAIStreamChunk {
+    choices: Vec<OpenAIStreamChoice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIStreamChoice {
+    delta: OpenAIStreamDelta,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIStreamDelta {
+    #[serde(default)]
+    content: Option<String>,
+}
+
+/// Result of translating a single Copilot SSE line into Ollama NDJSON output.
+#[derive(Debug, PartialEq)]
+pub(crate) enum SseLineOutput {
+    /// A serialised, newline-terminated Ollama NDJSON line ready to write.
+    Line(String),
+    /// The line was empty or a comment — nothing to emit.
+    Skip,
+    /// The line was not a valid `data: …` SSE line (logged as a warning).
+    Unexpected(String),
+}
+
+/// Translate one line of Copilot SSE output into the matching Ollama NDJSON
+/// representation.
+///
+/// * `data: [DONE]`       → terminal `{ …, "done": true }` object
+/// * `data: <json-chunk>` → intermediate `{ …, "done": false }` object
+/// * empty / whitespace   → `SseLineOutput::Skip`
+/// * anything else        → `SseLineOutput::Unexpected`
+pub(crate) fn translate_sse_line(model: &str, line: &str) -> SseLineOutput {
+    if let Some(payload) = line.strip_prefix("data: ") {
+        if payload == "[DONE]" {
+            let done_obj = OllamaChatResponse {
+                model: model.to_string(),
+                created_at: chrono::Utc::now().to_rfc3339(),
+                message: OllamaMessage {
+                    role: "assistant".to_string(),
+                    content: String::new(),
+                    thinking: None,
+                    tool_calls: None,
+                    images: None,
+                },
+                done: true,
+                done_reason: Some("stop".to_string()),
+                total_duration: None,
+                load_duration: None,
+                prompt_eval_count: None,
+                prompt_eval_duration: None,
+                eval_count: None,
+                eval_duration: None,
+            };
+            let mut json = serde_json::to_string(&done_obj).expect("serialization cannot fail");
+            json.push('\n');
+            SseLineOutput::Line(json)
+        } else {
+            match serde_json::from_str::<OpenAIStreamChunk>(payload) {
+                Ok(chunk) => {
+                    let content = chunk
+                        .choices
+                        .first()
+                        .and_then(|c| c.delta.content.clone())
+                        .unwrap_or_default();
+                    let chunk_obj = OllamaChatResponse {
+                        model: model.to_string(),
+                        created_at: chrono::Utc::now().to_rfc3339(),
+                        message: OllamaMessage {
+                            role: "assistant".to_string(),
+                            content,
+                            thinking: None,
+                            tool_calls: None,
+                            images: None,
+                        },
+                        done: false,
+                        done_reason: None,
+                        total_duration: None,
+                        load_duration: None,
+                        prompt_eval_count: None,
+                        prompt_eval_duration: None,
+                        eval_count: None,
+                        eval_duration: None,
+                    };
+                    let mut json =
+                        serde_json::to_string(&chunk_obj).expect("serialization cannot fail");
+                    json.push('\n');
+                    SseLineOutput::Line(json)
+                }
+                Err(e) => {
+                    warn!("Failed to parse Copilot SSE chunk: {} — {}", e, payload);
+                    SseLineOutput::Unexpected(payload.to_string())
+                }
+            }
+        }
+    } else if line.trim().is_empty() {
+        SseLineOutput::Skip
+    } else {
+        warn!("Unexpected SSE line from Copilot: {}", line);
+        SseLineOutput::Unexpected(line.to_string())
     }
 }
 
@@ -205,6 +356,120 @@ mod tests {
     use crate::openai::completion::models::FunctionDefinition;
     use crate::openai::completion::models::{OpenAIChatRequest, Tool};
     use crate::server_chat_completion::{CopilotChoice, CopilotUsage};
+
+    // -----------------------------------------------------------------------
+    // translate_sse_line — streaming conversion tests
+    // -----------------------------------------------------------------------
+
+    fn parse_line(line: &str) -> OllamaChatResponse {
+        match translate_sse_line("llama3", line) {
+            SseLineOutput::Line(s) => {
+                serde_json::from_str(s.trim_end_matches('\n')).expect("valid JSON")
+            }
+            other => panic!("expected SseLineOutput::Line, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_sse_done_emits_terminal_object() {
+        let result = translate_sse_line("my-model", "data: [DONE]");
+        let SseLineOutput::Line(json) = result else {
+            panic!("expected Line");
+        };
+        assert!(json.ends_with('\n'), "output must be newline-terminated");
+
+        let obj: OllamaChatResponse = serde_json::from_str(json.trim_end_matches('\n')).unwrap();
+        assert_eq!(obj.model, "my-model");
+        assert!(obj.done, "done must be true for [DONE]");
+        assert_eq!(obj.done_reason, Some("stop".to_string()));
+        assert_eq!(obj.message.content, "");
+        assert_eq!(obj.message.role, "assistant");
+    }
+
+    #[test]
+    fn test_sse_content_chunk_emits_intermediate_object() {
+        let payload = r#"{"id":"x","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}"#;
+        let line = format!("data: {}", payload);
+
+        let obj = parse_line(&line);
+        assert_eq!(obj.model, "llama3");
+        assert!(!obj.done, "done must be false for a content chunk");
+        assert!(obj.done_reason.is_none());
+        assert_eq!(obj.message.content, "Hello");
+        assert_eq!(obj.message.role, "assistant");
+    }
+
+    #[test]
+    fn test_sse_chunk_with_null_content_defaults_to_empty_string() {
+        // First chunk from Copilot often only carries `role`, with content: null
+        let payload = r#"{"id":"x","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}"#;
+        let line = format!("data: {}", payload);
+
+        let obj = parse_line(&line);
+        assert!(!obj.done);
+        assert_eq!(
+            obj.message.content, "",
+            "null content should default to empty string"
+        );
+    }
+
+    #[test]
+    fn test_sse_chunk_with_empty_choices_defaults_to_empty_string() {
+        let payload =
+            r#"{"id":"x","object":"chat.completion.chunk","created":1,"model":"m","choices":[]}"#;
+        let line = format!("data: {}", payload);
+
+        let obj = parse_line(&line);
+        assert!(!obj.done);
+        assert_eq!(obj.message.content, "");
+    }
+
+    #[test]
+    fn test_sse_output_is_newline_terminated() {
+        let payload = r#"{"id":"x","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":"Hi"},"finish_reason":null}]}"#;
+        let line = format!("data: {}", payload);
+
+        let SseLineOutput::Line(s) = translate_sse_line("model", &line) else {
+            panic!("expected Line");
+        };
+        assert!(s.ends_with('\n'));
+    }
+
+    #[test]
+    fn test_sse_empty_line_is_skipped() {
+        assert_eq!(translate_sse_line("m", ""), SseLineOutput::Skip);
+        assert_eq!(translate_sse_line("m", "   "), SseLineOutput::Skip);
+        assert_eq!(translate_sse_line("m", "\t"), SseLineOutput::Skip);
+    }
+
+    #[test]
+    fn test_sse_non_data_line_is_unexpected() {
+        match translate_sse_line("m", "event: ping") {
+            SseLineOutput::Unexpected(_) => {}
+            other => panic!("expected Unexpected, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_sse_malformed_json_is_unexpected() {
+        match translate_sse_line("m", "data: {not valid json}") {
+            SseLineOutput::Unexpected(_) => {}
+            other => panic!("expected Unexpected, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_sse_model_name_is_propagated() {
+        let payload = r#"{"id":"x","object":"chat.completion.chunk","created":1,"model":"ignored","choices":[{"index":0,"delta":{"content":"x"},"finish_reason":null}]}"#;
+        let line = format!("data: {}", payload);
+        let obj = parse_line(&line);
+        // model comes from the argument, not from the Copilot payload
+        assert_eq!(obj.model, "llama3");
+    }
+
+    // -----------------------------------------------------------------------
+    // Existing non-streaming tests (unchanged)
+    // -----------------------------------------------------------------------
 
     #[test]
     fn test_openai_chat_request_multiple_tools_normalize() {

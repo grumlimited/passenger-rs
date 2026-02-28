@@ -4,6 +4,8 @@ use crate::config::Config;
 use crate::server_chat_completion::*;
 use crate::server_list_models::*;
 use crate::server_ollama_chat::*;
+use crate::server_ollama_tags::*;
+use crate::server_ollama_version::*;
 use crate::server_openai_responses_chat::*;
 use crate::{server, token_manager};
 use axum::{
@@ -33,6 +35,7 @@ async fn health_check() -> &'static str {
 pub enum AppError {
     Unauthorized(String),
     InternalServerError(String),
+    BadRequest(String),
 }
 
 impl IntoResponse for AppError {
@@ -40,6 +43,7 @@ impl IntoResponse for AppError {
         let (status, error_message) = match self {
             AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg),
             AppError::InternalServerError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
+            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
         };
 
         let body = Json(serde_json::json!({
@@ -77,7 +81,14 @@ impl Server {
     fn create_router(state: Arc<AppState>) -> Router {
         Router::new()
             .route("/v1/chat/completions", post(Self::chat_completions))
+            // Ollama-compatible routes: standard /api/... paths
+            .route("/api/chat", post(Self::ollama_chat))
+            .route("/api/tags", get(Self::ollama_tags))
+            .route("/api/version", get(Self::ollama_version))
+            // Ollama-compatible routes: legacy /v1/api/... paths
             .route("/v1/api/chat", post(Self::ollama_chat))
+            .route("/v1/api/tags", get(Self::ollama_tags))
+            .route("/v1/api/version", get(Self::ollama_version))
             .route("/v1/models", get(Self::list_models))
             .route("/v1/responses", post(Self::openai_responses_chat))
             .route("/health", get(health_check))

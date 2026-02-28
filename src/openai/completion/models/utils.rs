@@ -47,7 +47,7 @@ impl OpenAIChatRequest {
     /// Call this method once on any request that contains tools before forwarding to Copilot.
     pub fn prepare_for_copilot(&mut self) {
         self.ensure_tool_ids();
-        self.duplicate_tool_messages_as_user();
+        // self.duplicate_tool_messages_as_user();
     }
 
     /// Generates and assigns IDs to tool-related messages when they are missing.
@@ -145,7 +145,7 @@ impl OpenAIChatRequest {
     ///
     /// This approach trades token consumption for reliability, ensuring Copilot both
     /// validates the tool calling chain AND consistently processes the results.
-    fn duplicate_tool_messages_as_user(&mut self) {
+    fn _duplicate_tool_messages_as_user(&mut self) {
         let mut user_duplicates = Vec::new();
         let mut last_tool_index = None;
 
@@ -198,7 +198,7 @@ impl From<CopilotModel> for OpenAIModel {
             id: value.id,
             object: "model".to_string(),
             created: 1687882411,
-            owned_by: value.publisher,
+            owned_by: value.family,
         }
     }
 }
