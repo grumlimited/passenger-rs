@@ -6,9 +6,9 @@ use crate::server_copilot::CopilotIntegration;
 use axum::response::IntoResponse;
 use axum::{Json, extract::State};
 use futures_util::{StreamExt as _, TryStreamExt as _};
+use reqwest::Error;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use reqwest::Error;
 use tokio_util::bytes::Bytes;
 use tracing::debug;
 use tracing::log::{error, info, warn};
@@ -123,29 +123,22 @@ impl OllamaChatEndpoint for Server {
                     error!("Error reading streaming response from Copilot: {}", e);
                     std::io::Error::other(e.to_string())
                 })
-                .flat_map(
-                    move |result| {
-                        let model = model.clone();
-                        let lines: Vec<Result<Bytes, std::io::Error>> =
-                            match result {
-                                Err(e) => vec![Err(e)],
-                                Ok(bytes) => {
-                                    let text = String::from_utf8_lossy(&bytes).into_owned();
-                                    text.lines()
-                                        .filter_map(|line| match translate_sse_line(&model, line) {
-                                            SseLineOutput::Line(s) => {
-                                                Some(Ok(Bytes::from(s)))
-                                            }
-                                            SseLineOutput::Skip | SseLineOutput::Unexpected(_) => {
-                                                None
-                                            }
-                                        })
-                                        .collect()
-                                }
-                            };
-                        futures_util::stream::iter(lines)
-                    },
-                );
+                .flat_map(move |result| {
+                    let model = model.clone();
+                    let lines: Vec<Result<Bytes, std::io::Error>> = match result {
+                        Err(e) => vec![Err(e)],
+                        Ok(bytes) => {
+                            let text = String::from_utf8_lossy(&bytes).into_owned();
+                            text.lines()
+                                .filter_map(|line| match translate_sse_line(&model, line) {
+                                    SseLineOutput::Line(s) => Some(Ok(Bytes::from(s))),
+                                    SseLineOutput::Skip | SseLineOutput::Unexpected(_) => None,
+                                })
+                                .collect()
+                        }
+                    };
+                    futures_util::stream::iter(lines)
+                });
 
             info!("Streaming Ollama chat response");
             let body = Body::from_stream(ndjson_stream);

@@ -201,7 +201,10 @@ mod tests {
     #[test]
     fn test_sse_data_line_returns_payload() {
         let result = translate_sse_line("data: {\"id\":\"1\"}");
-        assert_eq!(result, ChatSseLineOutput::Data("{\"id\":\"1\"}".to_string()));
+        assert_eq!(
+            result,
+            ChatSseLineOutput::Data("{\"id\":\"1\"}".to_string())
+        );
     }
 
     #[test]
