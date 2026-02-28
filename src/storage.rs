@@ -23,7 +23,7 @@ pub fn get_token_path() -> Result<PathBuf> {
     Ok(get_storage_dir()?.join("token.json"))
 }
 
-/// Save a Copilot token to disk (with optional custom path)
+/// Save a Copilot token to disk (with an optional custom path)
 pub fn save_token_to_path(token: &CopilotTokenResponse, custom_path: Option<&Path>) -> Result<()> {
     let token_path = match custom_path {
         Some(path) => {

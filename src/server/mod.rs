@@ -6,16 +6,14 @@ use crate::token_manager;
 pub mod chat_completion;
 pub mod copilot;
 pub mod list_models;
-pub mod ollama_chat;
-pub mod ollama_tags;
-pub mod ollama_version;
+pub mod ollama;
 pub mod openai_responses_chat;
 
 use self::chat_completion::*;
 use self::list_models::*;
-use self::ollama_chat::*;
-use self::ollama_tags::*;
-use self::ollama_version::*;
+use self::ollama::chat::*;
+use self::ollama::tags::*;
+use self::ollama::version::*;
 use self::openai_responses_chat::*;
 use axum::{
     Json, Router,
