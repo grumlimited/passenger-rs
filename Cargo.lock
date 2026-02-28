@@ -1261,10 +1261,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "bytes",
  "chrono",
  "clap",
  "crossterm",
  "futures-util",
+ "http",
  "indicatif",
  "reqwest",
  "serde",

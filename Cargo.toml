@@ -26,3 +26,5 @@ chrono = "0.4"
 crossterm = "0.29"
 [dev-dependencies]
 wiremock = "0.6"
+http = "1"
+bytes = "1"
