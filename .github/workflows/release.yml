@@ -18,7 +18,7 @@ jobs:
     strategy:
       matrix:
         rust:
-          - 1.93.0  # MSRV
+          - 1.93.1  # MSRV
 
     steps:
       - name: Checkout
@@ -58,7 +58,6 @@ jobs:
       - name: md5sum
         run: |
           md5sum target/release/passenger-rs > target/release/passenger-rs.md5sum
-          cp target/release/passenger-rs target/release/passenger-rs
 
       - name: Upload binary
         uses: softprops/action-gh-release@v2
