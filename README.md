@@ -46,7 +46,7 @@ let agent = AgentBuilder::new(model)
     .build();
 ```
 
-### Open WebUI
+## 💡 Use Case: Open WebUI Integration
 
 The proxy supports streaming and can be used with [Open WebUI](https://docs.openwebui.com/) as a chat interface over GitHub Copilot models.
 
