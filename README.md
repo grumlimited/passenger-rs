@@ -46,6 +46,30 @@ let agent = AgentBuilder::new(model)
     .build();
 ```
 
+### Open WebUI
+
+The proxy supports streaming and can be used with [Open WebUI](https://docs.openwebui.com/) as a chat interface over GitHub Copilot models.
+
+**As a local Ollama connection:**
+
+Point Open WebUI at the proxy using its Ollama connection setting:
+
+```
+http://127.0.0.1:8081
+```
+
+Open WebUI will discover available models via `GET /api/tags` and stream responses via `POST /api/chat`.
+
+**As a local OpenAI connection:**
+
+Alternatively, configure Open WebUI with a custom OpenAI-compatible endpoint:
+
+```
+http://127.0.0.1:8081/v1
+```
+
+Set any non-empty string as the API key (the proxy does not validate it). Open WebUI will use `GET /v1/models` to list models and `POST /v1/chat/completions` for streaming chat.
+
 ## 🚀 Features
 
 - **GitHub OAuth Authentication**: Secure device flow authentication with GitHub
