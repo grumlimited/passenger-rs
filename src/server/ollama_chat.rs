@@ -1,8 +1,8 @@
 use crate::copilot::CopilotChatRequest;
 use crate::copilot::CopilotChatResponse;
 use crate::openai::completion::models::OpenAIChatRequest;
+use crate::server::copilot::CopilotIntegration;
 use crate::server::{AppError, AppState, Server};
-use crate::server_copilot::CopilotIntegration;
 use axum::response::IntoResponse;
 use axum::{Json, extract::State};
 use futures_util::{StreamExt as _, TryStreamExt as _};
@@ -355,7 +355,7 @@ mod tests {
     use crate::copilot::CopilotMessage;
     use crate::openai::completion::models::FunctionDefinition;
     use crate::openai::completion::models::{OpenAIChatRequest, Tool};
-    use crate::server_chat_completion::{CopilotChoice, CopilotUsage};
+    use crate::server::chat_completion::{CopilotChoice, CopilotUsage};
 
     // -----------------------------------------------------------------------
     // translate_sse_line — streaming conversion tests
@@ -473,7 +473,7 @@ mod tests {
 
     #[test]
     fn test_openai_chat_request_multiple_tools_normalize() {
-        let json = include_str!("resources/rig_ollama_request_multiple_tools.json");
+        let json = include_str!("../resources/rig_ollama_request_multiple_tools.json");
         let mut json: OpenAIChatRequest = serde_json::from_str(json).unwrap();
 
         assert!(
@@ -495,7 +495,7 @@ mod tests {
 
     #[test]
     fn test_openai_chat_request_normalize() {
-        let json = include_str!("resources/rig_ollama_request.json");
+        let json = include_str!("../resources/rig_ollama_request.json");
         let mut json: OpenAIChatRequest = serde_json::from_str(json).unwrap();
 
         assert!(
@@ -634,7 +634,7 @@ mod tests {
     #[test]
     fn test_parse_ollama_response() {
         // Test parsing the expected JSON structure
-        let json = include_str!("resources/ollama_chat_response.json");
+        let json = include_str!("../resources/ollama_chat_response.json");
         let result = serde_json::from_str::<OllamaChatResponse>(json);
 
         assert!(

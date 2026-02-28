@@ -1,13 +1,22 @@
 // use passenger_rs::auth::CopilotTokenResponse;
 use crate::auth::CopilotTokenResponse;
 use crate::config::Config;
-use crate::server_chat_completion::*;
-use crate::server_list_models::*;
-use crate::server_ollama_chat::*;
-use crate::server_ollama_tags::*;
-use crate::server_ollama_version::*;
-use crate::server_openai_responses_chat::*;
-use crate::{server, token_manager};
+use crate::token_manager;
+
+pub mod chat_completion;
+pub mod copilot;
+pub mod list_models;
+pub mod ollama_chat;
+pub mod ollama_tags;
+pub mod ollama_version;
+pub mod openai_responses_chat;
+
+use self::chat_completion::*;
+use self::list_models::*;
+use self::ollama_chat::*;
+use self::ollama_tags::*;
+use self::ollama_version::*;
+use self::openai_responses_chat::*;
 use axum::{
     Json, Router,
     http::StatusCode,
@@ -65,7 +74,7 @@ pub struct Server {
 impl Server {
     pub fn new(config: &Config) -> Self {
         let client = Client::new();
-        let state = server::AppState {
+        let state = AppState {
             config: config.clone(),
             client,
         };

@@ -5,13 +5,6 @@ mod copilot;
 mod login;
 mod openai;
 mod server;
-mod server_chat_completion;
-mod server_copilot;
-mod server_list_models;
-mod server_ollama_chat;
-mod server_ollama_tags;
-mod server_ollama_version;
-mod server_openai_responses_chat;
 mod storage;
 mod token_manager;
 

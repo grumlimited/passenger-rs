@@ -11,7 +11,7 @@ use crate::openai::responses::models::prompt_response::{
 use crate::openai::responses::models::prompt_response::{
     CompletionResponse, Output, ResponsesUsage,
 };
-use crate::server_chat_completion::CopilotUsage;
+use crate::server::chat_completion::CopilotUsage;
 
 impl From<OpenAIChatRequest> for CopilotChatRequest {
     fn from(request: OpenAIChatRequest) -> Self {
