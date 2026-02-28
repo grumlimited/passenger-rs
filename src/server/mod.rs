@@ -87,7 +87,9 @@ impl Server {
     /// Create the Axum router
     fn create_router(state: Arc<AppState>) -> Router {
         Router::new()
+            // Openai-compatible endpoints
             .route("/v1/chat/completions", post(Self::chat_completions))
+            .route("/v1/responses", post(Self::openai_responses_chat))
             // Ollama-compatible routes: standard /api/... paths
             .route("/api/chat", post(Self::ollama_chat))
             .route("/api/tags", get(Self::ollama_tags))
@@ -97,7 +99,7 @@ impl Server {
             .route("/v1/api/tags", get(Self::ollama_tags))
             .route("/v1/api/version", get(Self::ollama_version))
             .route("/v1/models", get(Self::list_models))
-            .route("/v1/responses", post(Self::openai_responses_chat))
+            // other endpoints
             .route("/health", get(health_check))
             .with_state(state)
     }
