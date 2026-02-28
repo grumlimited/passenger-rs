@@ -4,7 +4,7 @@ use crate::openai::completion::models::OpenAIChatRequest;
 use crate::server::copilot::CopilotIntegration;
 use crate::server::{AppError, AppState, Server};
 use axum::response::{IntoResponse, Response};
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 use futures_util::{StreamExt as _, TryStreamExt as _};
 use reqwest::Error;
 use serde::{Deserialize, Serialize};
