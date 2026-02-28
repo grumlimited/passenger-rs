@@ -86,10 +86,10 @@ impl OllamaChatEndpoint for Server {
     ) -> Result<Response, AppError> {
         let mut request = request.0;
 
-        // debug!(
-        //     "original_openai_request:\n{}",
-        //     serde_json::to_string_pretty(&request).unwrap()
-        // );
+        debug!(
+            "original_ollama_request:\n{}",
+            serde_json::to_string_pretty(&request).unwrap()
+        );
 
         request.prepare_for_copilot();
 
@@ -139,6 +139,11 @@ impl OllamaChatEndpoint for Server {
 
         // Transform Copilot response to Ollama format
         let ollama_response = transform_to_ollama_response(&copilot_request, copilot_response)?;
+
+        debug!(
+            "ollama_response:\n{}",
+            serde_json::to_string_pretty(&ollama_response).unwrap()
+        );
 
         info!("Successfully processed Ollama chat request");
 
