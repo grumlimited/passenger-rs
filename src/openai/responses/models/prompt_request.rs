@@ -5,9 +5,11 @@ pub struct PromptRequest {
     pub input: Vec<Message>,
     pub model: String,
     pub instructions: Option<String>,
-    pub max_output_tokens: u32,
+    pub max_output_tokens: Option<u32>,
     #[serde(default = "default_tools")]
     pub tools: Vec<Tool>,
+    #[serde(default)]
+    pub stream: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

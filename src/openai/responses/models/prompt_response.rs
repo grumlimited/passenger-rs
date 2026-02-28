@@ -330,3 +330,84 @@ pub enum AssistantContent {
 pub struct Text {
     pub text: String,
 }
+
+// ---------------------------------------------------------------------------
+// Streaming event types for the Responses API
+// ---------------------------------------------------------------------------
+
+/// A single server-sent event emitted by the Responses API when `stream=true`.
+///
+/// Each variant maps to one of the typed event names defined in the OpenAI
+/// Responses API streaming reference.  Only the events needed for a basic
+/// text-completion stream are modelled here.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[allow(clippy::enum_variant_names)] // variant names mirror the OpenAI Responses API event names exactly
+pub enum ResponseStreamEvent {
+    /// Emitted once at the very start. Payload is a partial `CompletionResponse`
+    /// (status `in_progress`, empty `output`).
+    #[serde(rename = "response.created")]
+    ResponseCreated { response: CompletionResponse },
+
+    /// Emitted once when the output message item is first added to the stream.
+    #[serde(rename = "response.output_item.added")]
+    ResponseOutputItemAdded {
+        output_index: u32,
+        item: OutputMessage,
+    },
+
+    /// Emitted once when a content part is first added inside an output item.
+    #[serde(rename = "response.content_part.added")]
+    ResponseContentPartAdded {
+        item_id: String,
+        output_index: u32,
+        content_index: u32,
+        part: ContentPartText,
+    },
+
+    /// Emitted for each token delta.
+    #[serde(rename = "response.output_text.delta")]
+    ResponseOutputTextDelta {
+        item_id: String,
+        output_index: u32,
+        content_index: u32,
+        delta: String,
+    },
+
+    /// Emitted once when all tokens for a content part have been sent.
+    #[serde(rename = "response.output_text.done")]
+    ResponseOutputTextDone {
+        item_id: String,
+        output_index: u32,
+        content_index: u32,
+        text: String,
+    },
+
+    /// Emitted once when a content part is fully done.
+    #[serde(rename = "response.content_part.done")]
+    ResponseContentPartDone {
+        item_id: String,
+        output_index: u32,
+        content_index: u32,
+        part: ContentPartText,
+    },
+
+    /// Emitted once when the output item is fully done.
+    #[serde(rename = "response.output_item.done")]
+    ResponseOutputItemDone {
+        output_index: u32,
+        item: OutputMessage,
+    },
+
+    /// Emitted once at the end with the fully assembled `CompletionResponse`.
+    #[serde(rename = "response.completed")]
+    ResponseCompleted { response: CompletionResponse },
+}
+
+/// A text content part used inside streaming lifecycle events.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ContentPartText {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub text: String,
+}

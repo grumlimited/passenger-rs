@@ -210,7 +210,7 @@ impl From<PromptRequest> for CopilotChatRequest {
             messages,
             model: value.model,
             temperature: None,
-            max_tokens: Some(value.max_output_tokens),
+            max_tokens: value.max_output_tokens,
             stream: Some(false),
             tools,
             tool_choice: None,
