@@ -1,18 +1,6 @@
-// use passenger_rs::auth::CopilotTokenResponse;
 use crate::auth::CopilotTokenResponse;
 use crate::config::Config;
 use crate::token_manager;
-
-pub mod copilot;
-pub mod ollama;
-pub mod openai;
-
-use self::ollama::chat::*;
-use self::ollama::tags::*;
-use self::ollama::version::*;
-use self::openai::chat_completion::*;
-use self::openai::list_models::*;
-use self::openai::responses_chat::*;
 use axum::{
     Json, Router,
     http::StatusCode,
@@ -23,6 +11,13 @@ use reqwest::Client;
 use std::sync::Arc;
 use tracing::log::error;
 
+pub mod chat_completions;
+pub mod models;
+pub mod ollama_chat;
+pub mod ollama_tags;
+pub mod ollama_version;
+pub mod responses;
+
 /// Shared application state
 #[derive(Clone)]
 pub struct AppState {
@@ -30,12 +25,8 @@ pub struct AppState {
     pub client: Client,
 }
 
-/// Health check endpoint
-async fn health_check() -> &'static str {
-    "OK"
-}
-
 /// Custom error type for API responses
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum AppError {
     Unauthorized(String),
@@ -76,28 +67,20 @@ impl Server {
         };
         let state = Arc::new(state);
 
-        let app = Self::create_router(state.clone());
+        let router = Self::create_router(state);
         let addr = format!("{}:{}", config.server.host, config.server.port);
 
-        Self { addr, router: app }
+        Self { addr, router }
     }
 
-    /// Create the Axum router
     fn create_router(state: Arc<AppState>) -> Router {
         Router::new()
-            // Openai-compatible endpoints
-            .route("/v1/chat/completions", post(Self::chat_completions))
-            .route("/v1/responses", post(Self::openai_responses_chat))
-            // Ollama-compatible routes: standard /api/... paths
-            .route("/api/chat", post(Self::ollama_chat))
-            .route("/api/tags", get(Self::ollama_tags))
-            .route("/api/version", get(Self::ollama_version))
-            // Ollama-compatible routes: legacy /v1/api/... paths
-            .route("/v1/api/chat", post(Self::ollama_chat))
-            .route("/v1/api/tags", get(Self::ollama_tags))
-            .route("/v1/api/version", get(Self::ollama_version))
-            .route("/v1/models", get(Self::list_models))
-            // other endpoints
+            .route("/v1/chat/completions", post(chat_completions::handler))
+            .route("/v1/responses", post(responses::handler))
+            .route("/v1/models", get(models::handler))
+            .route("/api/chat", post(ollama_chat::handler))
+            .route("/api/tags", get(ollama_tags::handler))
+            .route("/api/version", get(ollama_version::handler))
             .route("/health", get(health_check))
             .with_state(state)
     }
@@ -112,4 +95,8 @@ impl Server {
                 )
             })
     }
+}
+
+async fn health_check() -> &'static str {
+    "OK"
 }

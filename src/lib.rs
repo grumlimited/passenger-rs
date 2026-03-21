@@ -2,6 +2,7 @@ pub mod auth;
 pub mod config;
 pub mod copilot;
 pub mod login;
+pub mod ollama;
 pub mod openai;
 pub mod server;
 pub mod storage;

@@ -3,6 +3,7 @@ mod clap;
 mod config;
 mod copilot;
 mod login;
+mod ollama;
 mod openai;
 mod server;
 mod storage;
@@ -16,10 +17,8 @@ use tracing_subscriber::FmtSubscriber;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Parse command line arguments
     let args = Args::parse_args();
 
-    // Initialize tracing
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::INFO)
         .finish();
@@ -27,33 +26,29 @@ async fn main() -> Result<()> {
 
     info!("Starting passenger-rs - GitHub Copilot Proxy");
 
-    // Validate configuration file exists
     args.validate_config_path()?;
 
-    // Load configuration
     let config = config::Config::from_file(&args.config)?;
     info!("Configuration loaded from {}", args.config);
 
-    // Execute any commands (login, refresh-token, etc.)
-    // If a command was executed, exit early
     if args.execute_command(&config).await? {
         return Ok(());
     }
 
-    // Verify token exists before starting server
     args.verify_token_exists()?;
 
-    // Start proxy server
-    info!("Starting OpenAI-compatible proxy server...");
+    info!("Starting proxy server...");
     let server = Server::new(&config);
 
     info!("Server listening on http://{}", server.addr);
     info!(
-        "OpenAI API endpoint: http://{}/v1/chat/completions",
+        "OpenAI chat completions: http://{}/v1/chat/completions",
         server.addr
     );
-    info!("Ollama API endpoint: http://{}/v1/api/chat", server.addr);
-    info!("Models endpoint: http://{}/v1/models", server.addr);
+    info!(
+        "OpenAI responses:        http://{}/v1/responses",
+        server.addr
+    );
 
     let listener = tokio::net::TcpListener::bind(&server.addr).await?;
     axum::serve(listener, server.router).await?;
