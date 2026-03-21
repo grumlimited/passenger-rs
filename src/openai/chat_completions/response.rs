@@ -53,6 +53,7 @@ pub struct ChatChoice {
     pub message: AssistantResponseMessage,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finish_reason: Option<String>,
+    #[serde(default)]
     pub index: u32,
 }
 
@@ -96,6 +97,7 @@ pub struct ChatCompletionChunkChoice {
     pub delta: Option<ChatDelta>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finish_reason: Option<String>,
+    #[serde(default)]
     pub index: u32,
 }
 
