@@ -26,6 +26,7 @@ pub struct AppState {
 }
 
 /// Custom error type for API responses
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum AppError {
     Unauthorized(String),

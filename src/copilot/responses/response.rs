@@ -35,6 +35,7 @@ pub struct OutputTokensDetails {
 // Annotations on output_text parts
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Annotation {
