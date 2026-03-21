@@ -26,14 +26,16 @@ use futures_util::StreamExt;
 use std::sync::Arc;
 use tracing::error;
 
-use crate::copilot::should_use_responses_api;
 use crate::copilot::responses::request::CopilotResponsesRequest;
 use crate::copilot::responses::response::CopilotResponsesResponse;
-use crate::copilot::responses::stream::{OutputItemAdded, ParsedSseEvent, StreamEvent, parse_sse_line};
+use crate::copilot::responses::stream::{
+    OutputItemAdded, ParsedSseEvent, StreamEvent, parse_sse_line,
+};
+use crate::copilot::should_use_responses_api;
+use crate::ollama::chat::request::{OllamaChatRequest, OllamaMessage, OllamaRole};
+use crate::ollama::chat::response::OllamaChatResponse;
 use crate::openai::chat_completions::request::ChatCompletionsRequest;
 use crate::openai::chat_completions::response::{ChatCompletionChunk, ChatCompletionsResponse};
-use crate::ollama::chat::request::{OllamaMessage, OllamaRole, OllamaChatRequest};
-use crate::ollama::chat::response::OllamaChatResponse;
 
 use super::{AppError, AppState, Server};
 
@@ -93,7 +95,10 @@ pub async fn handler(
                                 translate_copilot_event_to_ollama_chunk(&line, &model)
                             {
                                 let bytes = Bytes::from(ndjson);
-                                return Some((Ok::<_, std::convert::Infallible>(bytes), (stream, buf, model)));
+                                return Some((
+                                    Ok::<_, std::convert::Infallible>(bytes),
+                                    (stream, buf, model),
+                                ));
                             }
                             continue;
                         }
@@ -139,8 +144,8 @@ pub async fn handler(
                 AppError::InternalServerError(format!("Failed to read upstream body: {}", e))
             })?;
 
-            let copilot_response: CopilotResponsesResponse =
-                serde_json::from_slice(&bytes).map_err(|e| {
+            let copilot_response: CopilotResponsesResponse = serde_json::from_slice(&bytes)
+                .map_err(|e| {
                     error!("Failed to parse upstream response: {}", e);
                     AppError::InternalServerError(format!(
                         "Failed to parse upstream response: {}",
@@ -201,7 +206,10 @@ pub async fn handler(
                                 translate_chat_chunk_to_ollama_ndjson(&line, &model)
                             {
                                 let bytes = Bytes::from(ndjson);
-                                return Some((Ok::<_, std::convert::Infallible>(bytes), (stream, buf, model)));
+                                return Some((
+                                    Ok::<_, std::convert::Infallible>(bytes),
+                                    (stream, buf, model),
+                                ));
                             }
                             continue;
                         }

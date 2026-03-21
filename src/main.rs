@@ -41,8 +41,14 @@ async fn main() -> Result<()> {
     let server = Server::new(&config);
 
     info!("Server listening on http://{}", server.addr);
-    info!("OpenAI chat completions: http://{}/v1/chat/completions", server.addr);
-    info!("OpenAI responses:        http://{}/v1/responses", server.addr);
+    info!(
+        "OpenAI chat completions: http://{}/v1/chat/completions",
+        server.addr
+    );
+    info!(
+        "OpenAI responses:        http://{}/v1/responses",
+        server.addr
+    );
 
     let listener = tokio::net::TcpListener::bind(&server.addr).await?;
     axum::serve(listener, server.router).await?;

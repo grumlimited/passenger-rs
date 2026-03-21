@@ -47,6 +47,9 @@ pub async fn handler(
         AppError::InternalServerError(format!("Failed to parse Copilot models response: {}", e))
     })?;
 
-    info!("Successfully fetched {} models", copilot_response.models.len());
+    info!(
+        "Successfully fetched {} models",
+        copilot_response.models.len()
+    );
     Ok(Json(copilot_response.into()))
 }

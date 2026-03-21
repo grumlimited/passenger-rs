@@ -25,16 +25,18 @@ use futures_util::StreamExt;
 use std::sync::Arc;
 use tracing::error;
 
-use crate::copilot::should_use_responses_api;
 use crate::copilot::responses::request::CopilotResponsesRequest;
 use crate::copilot::responses::response::CopilotResponsesResponse;
-use crate::copilot::responses::stream::{OutputItemAdded, ParsedSseEvent, StreamEvent, parse_sse_line};
+use crate::copilot::responses::stream::{
+    OutputItemAdded, ParsedSseEvent, StreamEvent, parse_sse_line,
+};
+use crate::copilot::should_use_responses_api;
 use crate::openai::chat_completions::request::ChatCompletionsRequest;
+use crate::openai::chat_completions::response::ChatCompletionsResponse;
 use crate::openai::chat_completions::response::{
     ChatCompletionChunk, ChatCompletionChunkChoice, ChatDelta, ChatUsage, ToolCallDelta,
     ToolCallFunctionDelta,
 };
-use crate::openai::chat_completions::response::ChatCompletionsResponse;
 
 use super::{AppError, AppState, Server};
 
@@ -90,7 +92,10 @@ pub async fn handler(
                                 translate_copilot_event_to_chat_chunk(&line, &model)
                             {
                                 let bytes = Bytes::from(sse_data);
-                                return Some((Ok::<_, std::convert::Infallible>(bytes), (stream, buf, model)));
+                                return Some((
+                                    Ok::<_, std::convert::Infallible>(bytes),
+                                    (stream, buf, model),
+                                ));
                             }
                             continue;
                         }
@@ -137,8 +142,8 @@ pub async fn handler(
                 AppError::InternalServerError(format!("Failed to read upstream body: {}", e))
             })?;
 
-            let copilot_response: CopilotResponsesResponse =
-                serde_json::from_slice(&bytes).map_err(|e| {
+            let copilot_response: CopilotResponsesResponse = serde_json::from_slice(&bytes)
+                .map_err(|e| {
                     error!("Failed to parse upstream response: {}", e);
                     AppError::InternalServerError(format!(
                         "Failed to parse upstream response: {}",
@@ -182,21 +187,17 @@ pub async fn handler(
 
         if is_streaming {
             // Upstream SSE is already valid OpenAI SSE — pass bytes through directly.
-            let safe_stream = futures_util::stream::unfold(
-                upstream.bytes_stream(),
-                |mut stream| async move {
+            let safe_stream =
+                futures_util::stream::unfold(upstream.bytes_stream(), |mut stream| async move {
                     match stream.next().await {
-                        Some(Ok(bytes)) => {
-                            Some((Ok::<_, std::convert::Infallible>(bytes), stream))
-                        }
+                        Some(Ok(bytes)) => Some((Ok::<_, std::convert::Infallible>(bytes), stream)),
                         Some(Err(e)) => {
                             error!("Stream error: {}", e);
                             None
                         }
                         None => None,
                     }
-                },
-            );
+                });
             let body = Body::from_stream(safe_stream);
             let response = Response::builder()
                 .status(StatusCode::OK)
@@ -321,7 +322,13 @@ fn translate_copilot_event_to_chat_chunk(line: &str, model: &str) -> Option<Stri
 
         StreamEvent::OutputItemAdded {
             output_index,
-            item: OutputItemAdded::FunctionCall { id: _, call_id, name, .. },
+            item:
+                OutputItemAdded::FunctionCall {
+                    id: _,
+                    call_id,
+                    name,
+                    ..
+                },
         } => ChatCompletionChunk {
             id: None,
             created: None,
@@ -369,9 +376,7 @@ fn translate_copilot_event_to_chat_chunk(line: &str, model: &str) -> Option<Stri
             let usage = ChatUsage {
                 prompt_tokens: Some(response.usage.input_tokens),
                 completion_tokens: Some(response.usage.output_tokens),
-                total_tokens: Some(
-                    response.usage.input_tokens + response.usage.output_tokens,
-                ),
+                total_tokens: Some(response.usage.input_tokens + response.usage.output_tokens),
                 prompt_tokens_details: None,
                 completion_tokens_details: None,
             };
@@ -400,9 +405,7 @@ fn translate_copilot_event_to_chat_chunk(line: &str, model: &str) -> Option<Stri
             let usage = ChatUsage {
                 prompt_tokens: Some(response.usage.input_tokens),
                 completion_tokens: Some(response.usage.output_tokens),
-                total_tokens: Some(
-                    response.usage.input_tokens + response.usage.output_tokens,
-                ),
+                total_tokens: Some(response.usage.input_tokens + response.usage.output_tokens),
                 prompt_tokens_details: None,
                 completion_tokens_details: None,
             };

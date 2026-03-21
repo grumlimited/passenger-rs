@@ -7,8 +7,8 @@
 
 #[allow(unused_imports)]
 pub use crate::copilot::responses::stream::{
-    parse_sse_line, IncompleteDetailsStream, OutputItemAdded, OutputItemDone, ParsedSseEvent,
-    ResponseCreatedPayload, ResponseFinishedPayload, StreamAnnotation, StreamEvent,
+    IncompleteDetailsStream, OutputItemAdded, OutputItemDone, ParsedSseEvent,
+    ResponseCreatedPayload, ResponseFinishedPayload, StreamAnnotation, StreamEvent, parse_sse_line,
 };
 
 #[cfg(test)]
