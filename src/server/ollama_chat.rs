@@ -29,7 +29,7 @@ use tracing::error;
 use crate::copilot::should_use_responses_api;
 use crate::copilot::responses::request::CopilotResponsesRequest;
 use crate::copilot::responses::response::CopilotResponsesResponse;
-use crate::copilot::responses::stream::{OutputItemAdded, StreamEvent, parse_sse_line};
+use crate::copilot::responses::stream::{OutputItemAdded, ParsedSseEvent, StreamEvent, parse_sse_line};
 use crate::openai::chat_completions::request::ChatCompletionsRequest;
 use crate::openai::chat_completions::response::{ChatCompletionChunk, ChatCompletionsResponse};
 use crate::ollama::chat::request::{OllamaMessage, OllamaRole, OllamaChatRequest};
@@ -274,7 +274,11 @@ pub async fn handler(
 /// Ollama NDJSON line (`<json>\n`), or `None` if the line should be skipped.
 fn translate_copilot_event_to_ollama_chunk(line: &str, model: &str) -> Option<String> {
     let event = match parse_sse_line(line) {
-        Some(Ok(e)) => e,
+        Some(Ok(ParsedSseEvent::Known(e))) => e,
+        Some(Ok(ParsedSseEvent::Unknown(t))) => {
+            tracing::warn!("Skipping unknown Copilot SSE event type: {}", t);
+            return None;
+        }
         Some(Err(e)) => {
             error!("Failed to parse Copilot SSE event: {} | line: {}", e, line);
             return None;
@@ -403,6 +407,9 @@ fn translate_copilot_event_to_ollama_chunk(line: &str, model: &str) -> Option<St
         | StreamEvent::ImageGenerationPartialImage { .. }
         | StreamEvent::CodeInterpreterCallCodeDelta { .. }
         | StreamEvent::CodeInterpreterCallCodeDone { .. }
+        | StreamEvent::ContentPartAdded { .. }
+        | StreamEvent::ContentPartDone { .. }
+        | StreamEvent::ResponseInProgress { .. }
         | StreamEvent::Error { .. } => return None,
     };
 

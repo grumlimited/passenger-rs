@@ -7,7 +7,7 @@
 
 #[allow(unused_imports)]
 pub use crate::copilot::responses::stream::{
-    parse_sse_line, IncompleteDetailsStream, OutputItemAdded, OutputItemDone,
+    parse_sse_line, IncompleteDetailsStream, OutputItemAdded, OutputItemDone, ParsedSseEvent,
     ResponseCreatedPayload, ResponseFinishedPayload, StreamAnnotation, StreamEvent,
 };
 
@@ -19,9 +19,8 @@ mod tests {
     fn test_parse_output_text_delta() {
         let line =
             r#"data: {"type":"response.output_text.delta","item_id":"msg-1","delta":"Hello"}"#;
-        let event = parse_sse_line(line).unwrap().unwrap();
-        match event {
-            StreamEvent::OutputTextDelta { item_id, delta, .. } => {
+        match parse_sse_line(line).unwrap().unwrap() {
+            ParsedSseEvent::Known(StreamEvent::OutputTextDelta { item_id, delta, .. }) => {
                 assert_eq!(item_id, "msg-1");
                 assert_eq!(delta, "Hello");
             }
@@ -37,9 +36,8 @@ mod tests {
     #[test]
     fn test_parse_response_completed() {
         let line = r#"data: {"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":5},"incomplete_details":null}}"#;
-        let event = parse_sse_line(line).unwrap().unwrap();
-        match event {
-            StreamEvent::ResponseCompleted { response } => {
+        match parse_sse_line(line).unwrap().unwrap() {
+            ParsedSseEvent::Known(StreamEvent::ResponseCompleted { response }) => {
                 assert_eq!(response.usage.input_tokens, 10);
             }
             other => panic!("expected ResponseCompleted, got {:?}", other),
