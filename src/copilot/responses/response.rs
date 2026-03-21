@@ -45,20 +45,25 @@ pub enum Annotation {
         url: String,
         title: String,
     },
-    FileCitation {
-        file_id: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        filename: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        index: Option<u32>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        start_index: Option<u32>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        end_index: Option<u32>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        quote: Option<String>,
-    },
+    FileCitation(FileCitationAnnotation),
     ContainerFileCitation {},
+}
+
+/// Shared file-citation payload used in both `Annotation` (non-streaming)
+/// and `StreamAnnotation` (streaming).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FileCitationAnnotation {
+    pub file_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_index: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_index: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quote: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

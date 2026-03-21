@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::response::{
-    CodeInterpreterCallItem, FileSearchCallItem, FunctionCallOutputItem, ImageGenerationCallItem,
-    LocalShellCallItem, LogprobEntry, MessageOutputItem, ReasoningOutputItem, Usage,
-    WebSearchCallItem,
+    CodeInterpreterCallItem, FileCitationAnnotation, FileSearchCallItem, FunctionCallOutputItem,
+    ImageGenerationCallItem, LocalShellCallItem, LogprobEntry, MessageOutputItem,
+    ReasoningOutputItem, Usage, WebSearchCallItem,
 };
 
 // ---------------------------------------------------------------------------
@@ -93,23 +93,8 @@ pub enum OutputItemDone {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum StreamAnnotation {
-    UrlCitation {
-        url: String,
-        title: String,
-    },
-    FileCitation {
-        file_id: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        filename: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        index: Option<u32>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        start_index: Option<u32>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        end_index: Option<u32>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        quote: Option<String>,
-    },
+    UrlCitation { url: String, title: String },
+    FileCitation(FileCitationAnnotation),
 }
 
 // ---------------------------------------------------------------------------
