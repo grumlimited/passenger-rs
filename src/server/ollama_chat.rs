@@ -402,6 +402,7 @@ fn translate_copilot_event_to_ollama_chunk(line: &str, model: &str) -> Option<St
         }
         | StreamEvent::OutputItemAdded { .. }
         | StreamEvent::OutputItemDone { .. }
+        | StreamEvent::OutputTextDone { .. }
         | StreamEvent::OutputTextAnnotationAdded { .. }
         | StreamEvent::ReasoningSummaryPartAdded { .. }
         | StreamEvent::ImageGenerationPartialImage { .. }

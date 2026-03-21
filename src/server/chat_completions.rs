@@ -429,6 +429,7 @@ fn translate_copilot_event_to_chat_chunk(line: &str, model: &str) -> Option<Stri
 
         StreamEvent::OutputItemDone { .. }
         | StreamEvent::OutputItemAdded { .. }
+        | StreamEvent::OutputTextDone { .. }
         | StreamEvent::OutputTextAnnotationAdded { .. }
         | StreamEvent::ReasoningSummaryPartAdded { .. }
         | StreamEvent::ImageGenerationPartialImage { .. }

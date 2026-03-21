@@ -157,6 +157,14 @@ pub enum StreamEvent {
         logprobs: Option<Vec<LogprobEntry>>,
     },
 
+    // Fired when a text part is fully assembled (no new content beyond deltas)
+    #[serde(rename = "response.output_text.done")]
+    OutputTextDone {
+        item_id: String,
+        output_index: u32,
+        content_index: u32,
+    },
+
     // Stream lifecycle
     #[serde(rename = "response.created")]
     ResponseCreated { response: ResponseCreatedPayload },
