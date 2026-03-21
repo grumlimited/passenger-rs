@@ -5,6 +5,7 @@
 //! Copilot-only fields), and re-export the shared input/tool types from
 //! `copilot::responses::request` directly.
 
+#[allow(unused_imports)]
 pub use crate::copilot::responses::request::{
     AssistantContentPart, AssistantMessage, CodeInterpreterTool, ComputerUseTool, DeveloperMessage,
     FileSearchTool, FunctionCallItem, FunctionCallItemKind, FunctionTool, ImageGenerationTool,

@@ -5,6 +5,7 @@
 //! types from `copilot::responses::stream` so the rest of the codebase can
 //! refer to either namespace interchangeably.
 
+#[allow(unused_imports)]
 pub use crate::copilot::responses::stream::{
     parse_sse_line, IncompleteDetailsStream, OutputItemAdded, OutputItemDone,
     ResponseCreatedPayload, ResponseFinishedPayload, StreamAnnotation, StreamEvent,

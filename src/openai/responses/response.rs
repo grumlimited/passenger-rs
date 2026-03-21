@@ -5,6 +5,7 @@
 //! `copilot::responses::response` and define our own top-level struct that
 //! omits the Copilot-specific `error` inline field.
 
+#[allow(unused_imports)]
 pub use crate::copilot::responses::response::{
     Annotation, CodeInterpreterCallItem, CodeInterpreterOutput, ComputerCallItem,
     FileSearchCallItem, FileSearchResult, FunctionCallOutputItem, ImageGenerationCallItem,

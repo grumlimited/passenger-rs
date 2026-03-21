@@ -1,4 +1,5 @@
-//! Converters between Ollama `/api/chat` types and Copilot `/responses` types.
+//! Converters between Ollama `/api/chat` types and Copilot `/responses` types,
+//! and between Ollama `/api/chat` types and OpenAI `/chat/completions` types.
 //!
 //! # OllamaChatRequest → CopilotResponsesRequest
 //! - `messages` → `input` items (same pattern as chat_completions converter)
@@ -14,15 +15,28 @@
 //! - `created_at` (u64 epoch seconds) → ISO 8601 string via chrono
 //! - Usage token counts stored as timing approximations (no real nanosecond
 //!   timings available from Copilot; fields are omitted / set to None).
+//!
+//! # OllamaChatRequest → ChatCompletionsRequest
+//! - `messages` → `messages` (role/content/tool_calls mapped)
+//! - `options.{temperature,top_p,num_predict}` → top-level fields
+//! - `tools` → `tools` (OllamaFunctionTool → ChatFunctionTool)
+//! - Ollama tool-call `arguments` is a JSON object; OpenAI expects a JSON string.
+//! - Tool message `tool_name` → `tool_call_id` (synthetic `"call_{name}"`)
+//!
+//! # ChatCompletionsResponse → OllamaChatResponse
+//! - `choices[0].message.content` → `message.content`
+//! - `choices[0].message.tool_calls` → `message.tool_calls` (arguments string → Value)
+//! - `choices[0].finish_reason` → `done_reason`
+//! - `usage.{prompt_tokens,completion_tokens}` → `{prompt_eval_count,eval_count}`
+//! - `created` (u64 epoch) → `created_at` (ISO 8601)
 
 use chrono::{DateTime, Utc};
 
 use crate::copilot::responses::request::{
     AssistantContentPart, AssistantMessage as CopilotAssistantMessage, CopilotResponsesRequest,
     FunctionCallItem, FunctionCallItemKind, FunctionTool, InputItem,
-    SystemMessage as CopilotSystemMessage, Tool, ToolChoice, ToolChoiceFunction, ToolChoiceMode,
-    ToolResult, ToolResultKind, UserContent as CopilotUserContent,
-    UserMessage as CopilotUserMessage,
+    SystemMessage as CopilotSystemMessage, Tool, ToolResult, ToolResultKind,
+    UserContent as CopilotUserContent, UserMessage as CopilotUserMessage,
 };
 use crate::copilot::responses::response::{CopilotResponsesResponse, OutputItem};
 use crate::ollama::chat::request::{
@@ -30,6 +44,16 @@ use crate::ollama::chat::request::{
     OllamaToolCallFunction,
 };
 use crate::ollama::chat::response::OllamaChatResponse;
+use crate::openai::chat_completions::request::{
+    AssistantMessage as ChatAssistantMessage, ChatCompletionsRequest, ChatFunctionTool,
+    ChatMessage, ChatTool, SystemContent, SystemMessage as ChatSystemMessage,
+    ToolCall as ChatToolCall, ToolCallFunction as ChatToolCallFunction,
+    ToolCallKind as ChatToolCallKind, ToolMessage as ChatToolMessage, UserContent,
+    UserMessage as ChatUserMessage,
+};
+use crate::openai::chat_completions::response::{
+    AssistantResponseMessage, ChatCompletionsResponse,
+};
 
 // ---------------------------------------------------------------------------
 // OllamaMessage → Copilot InputItem(s)
@@ -251,6 +275,210 @@ impl From<CopilotResponsesResponse> for OllamaChatResponse {
             prompt_eval_count: Some(resp.usage.input_tokens),
             prompt_eval_duration: None,
             eval_count: Some(resp.usage.output_tokens),
+            eval_duration: None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// OllamaChatRequest → ChatCompletionsRequest
+// ---------------------------------------------------------------------------
+
+impl From<OllamaChatRequest> for ChatCompletionsRequest {
+    fn from(req: OllamaChatRequest) -> Self {
+        let messages: Vec<ChatMessage> = req
+            .messages
+            .into_iter()
+            .flat_map(ollama_message_to_chat_messages)
+            .collect();
+
+        let tools = req.tools.map(|ts| {
+            ts.into_iter()
+                .map(|t| match t {
+                    OllamaTool::Function(OllamaFunctionTool {
+                        name,
+                        description,
+                        parameters,
+                    }) => ChatTool::Function(ChatFunctionTool {
+                        name,
+                        description,
+                        parameters,
+                        strict: None,
+                    }),
+                })
+                .collect()
+        });
+
+        let temperature = req.options.as_ref().and_then(|o| o.temperature);
+        let top_p = req.options.as_ref().and_then(|o| o.top_p);
+        let max_tokens = req
+            .options
+            .as_ref()
+            .and_then(|o| o.num_predict)
+            .and_then(|n| if n > 0 { Some(n as u32) } else { None });
+
+        ChatCompletionsRequest {
+            model: req.model,
+            messages,
+            stream: req.stream,
+            stream_options: None,
+            temperature,
+            top_p,
+            max_tokens,
+            frequency_penalty: None,
+            presence_penalty: None,
+            stop: None,
+            seed: None,
+            response_format: None,
+            tools,
+            tool_choice: None,
+            user: None,
+            reasoning_effort: None,
+            verbosity: None,
+            thinking_budget: None,
+        }
+    }
+}
+
+/// Convert one `OllamaMessage` into one or more `ChatMessage`s.
+///
+/// Assistant messages with tool calls are split: the text content (if any) is
+/// kept on the `AssistantMessage`, and each tool call is carried there too
+/// (OpenAI groups them all on the assistant message, unlike the Copilot
+/// `/responses` format which uses separate `FunctionCallItem` input items).
+fn ollama_message_to_chat_messages(msg: OllamaMessage) -> Vec<ChatMessage> {
+    match msg.role {
+        OllamaRole::System => vec![ChatMessage::System(ChatSystemMessage {
+            content: SystemContent::Text(msg.content),
+        })],
+
+        OllamaRole::User => vec![ChatMessage::User(ChatUserMessage {
+            content: UserContent::Text(msg.content),
+        })],
+
+        OllamaRole::Assistant => {
+            let tool_calls: Option<Vec<ChatToolCall>> = msg.tool_calls.map(|tcs| {
+                tcs.into_iter()
+                    .map(|tc| {
+                        let arguments = serde_json::to_string(&tc.function.arguments)
+                            .unwrap_or_else(|_| "{}".to_string());
+                        let id = format!("call_{}", tc.function.name);
+                        ChatToolCall {
+                            id,
+                            kind: ChatToolCallKind::Function,
+                            function: ChatToolCallFunction {
+                                name: tc.function.name,
+                                arguments,
+                            },
+                        }
+                    })
+                    .collect()
+            });
+
+            let content = if msg.content.is_empty() {
+                None
+            } else {
+                Some(msg.content)
+            };
+
+            vec![ChatMessage::Assistant(ChatAssistantMessage {
+                content,
+                tool_calls,
+                reasoning_text: None,
+                reasoning_opaque: None,
+            })]
+        }
+
+        OllamaRole::Tool => {
+            // Reconstruct the synthetic call id from tool_name.
+            let tool_call_id = msg
+                .tool_name
+                .as_deref()
+                .map(|n| format!("call_{n}"))
+                .unwrap_or_else(|| "call_unknown".to_string());
+
+            vec![ChatMessage::Tool(ChatToolMessage {
+                content: msg.content,
+                tool_call_id,
+            })]
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ChatCompletionsResponse → OllamaChatResponse
+// ---------------------------------------------------------------------------
+
+impl From<ChatCompletionsResponse> for OllamaChatResponse {
+    fn from(resp: ChatCompletionsResponse) -> Self {
+        // Use the first choice (if any).
+        let choice = resp.choices.into_iter().next();
+
+        let (content, tool_calls, done_reason) = match choice {
+            None => (String::new(), None, Some("stop".to_string())),
+            Some(c) => {
+                let msg: AssistantResponseMessage = c.message;
+
+                let content = msg.content.unwrap_or_default();
+
+                let tool_calls: Option<Vec<OllamaToolCall>> = msg.tool_calls.map(|tcs| {
+                    tcs.into_iter()
+                        .map(|tc| {
+                            let arguments: serde_json::Value =
+                                serde_json::from_str(&tc.function.arguments)
+                                    .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                            OllamaToolCall {
+                                function: OllamaToolCallFunction {
+                                    name: tc.function.name,
+                                    arguments,
+                                },
+                            }
+                        })
+                        .collect()
+                });
+
+                let done_reason = c.finish_reason;
+
+                (content, tool_calls, done_reason)
+            }
+        };
+
+        // Format created_at as ISO 8601. Fall back to epoch-zero if absent.
+        let created_at = resp
+            .created
+            .and_then(|ts| DateTime::<Utc>::from_timestamp(ts as i64, 0))
+            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+            .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string());
+
+        let model = resp.model.unwrap_or_default();
+
+        let (prompt_eval_count, eval_count) = resp
+            .usage
+            .map(|u| (u.prompt_tokens, u.completion_tokens))
+            .unwrap_or((None, None));
+
+        OllamaChatResponse {
+            model,
+            created_at,
+            message: OllamaMessage {
+                role: OllamaRole::Assistant,
+                content,
+                images: None,
+                thinking: None,
+                tool_calls: if tool_calls.as_ref().is_none_or(|v| v.is_empty()) {
+                    None
+                } else {
+                    tool_calls
+                },
+                tool_name: None,
+            },
+            done: true,
+            done_reason,
+            total_duration: None,
+            load_duration: None,
+            prompt_eval_count,
+            prompt_eval_duration: None,
+            eval_count,
             eval_duration: None,
         }
     }
@@ -645,5 +873,328 @@ mod tests {
         assert!(ollama.load_duration.is_none());
         assert!(ollama.prompt_eval_duration.is_none());
         assert!(ollama.eval_duration.is_none());
+    }
+
+    // --- OllamaChatRequest → ChatCompletionsRequest ---
+
+    use crate::openai::chat_completions::request::{
+        ChatCompletionsRequest, ChatMessage, ChatTool, SystemContent, UserContent,
+    };
+    use crate::openai::chat_completions::response::{
+        AssistantResponseMessage, ChatChoice, ChatCompletionsResponse, ChatUsage,
+    };
+
+    fn minimal_chat_request(msgs: Vec<OllamaMessage>) -> OllamaChatRequest {
+        OllamaChatRequest {
+            model: "gpt-4o".to_string(),
+            messages: msgs,
+            tools: None,
+            think: None,
+            format: None,
+            options: None,
+            stream: None,
+            keep_alive: None,
+        }
+    }
+
+    #[test]
+    fn test_ollama_to_chat_system_message() {
+        let req = minimal_chat_request(vec![OllamaMessage {
+            role: OllamaRole::System,
+            content: "Be helpful.".to_string(),
+            images: None,
+            thinking: None,
+            tool_calls: None,
+            tool_name: None,
+        }]);
+        let chat: ChatCompletionsRequest = req.into();
+        assert_eq!(chat.messages.len(), 1);
+        match &chat.messages[0] {
+            ChatMessage::System(s) => match &s.content {
+                SystemContent::Text(t) => assert_eq!(t, "Be helpful."),
+                _ => panic!("expected text"),
+            },
+            other => panic!("expected System, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_ollama_to_chat_user_message() {
+        let req = minimal_chat_request(vec![OllamaMessage {
+            role: OllamaRole::User,
+            content: "Hello".to_string(),
+            images: None,
+            thinking: None,
+            tool_calls: None,
+            tool_name: None,
+        }]);
+        let chat: ChatCompletionsRequest = req.into();
+        match &chat.messages[0] {
+            ChatMessage::User(u) => match &u.content {
+                UserContent::Text(t) => assert_eq!(t, "Hello"),
+                _ => panic!("expected text"),
+            },
+            other => panic!("expected User, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_ollama_to_chat_assistant_text_message() {
+        let req = minimal_chat_request(vec![OllamaMessage {
+            role: OllamaRole::Assistant,
+            content: "Sure!".to_string(),
+            images: None,
+            thinking: None,
+            tool_calls: None,
+            tool_name: None,
+        }]);
+        let chat: ChatCompletionsRequest = req.into();
+        match &chat.messages[0] {
+            ChatMessage::Assistant(a) => {
+                assert_eq!(a.content.as_deref(), Some("Sure!"));
+                assert!(a.tool_calls.is_none());
+            }
+            other => panic!("expected Assistant, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_ollama_to_chat_assistant_tool_call() {
+        use crate::ollama::chat::request::{OllamaToolCall, OllamaToolCallFunction};
+        let req = minimal_chat_request(vec![OllamaMessage {
+            role: OllamaRole::Assistant,
+            content: "".to_string(),
+            images: None,
+            thinking: None,
+            tool_calls: Some(vec![OllamaToolCall {
+                function: OllamaToolCallFunction {
+                    name: "get_weather".to_string(),
+                    arguments: json!({ "city": "Paris" }),
+                },
+            }]),
+            tool_name: None,
+        }]);
+        let chat: ChatCompletionsRequest = req.into();
+        match &chat.messages[0] {
+            ChatMessage::Assistant(a) => {
+                // empty string content → None
+                assert!(a.content.is_none());
+                let tcs = a.tool_calls.as_ref().unwrap();
+                assert_eq!(tcs.len(), 1);
+                assert_eq!(tcs[0].id, "call_get_weather");
+                assert_eq!(tcs[0].function.name, "get_weather");
+                // arguments must be a JSON string
+                assert_eq!(tcs[0].function.arguments, r#"{"city":"Paris"}"#);
+            }
+            other => panic!("expected Assistant, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_ollama_to_chat_tool_message() {
+        let req = minimal_chat_request(vec![OllamaMessage {
+            role: OllamaRole::Tool,
+            content: "22".to_string(),
+            images: None,
+            thinking: None,
+            tool_calls: None,
+            tool_name: Some("get_weather".to_string()),
+        }]);
+        let chat: ChatCompletionsRequest = req.into();
+        match &chat.messages[0] {
+            ChatMessage::Tool(t) => {
+                assert_eq!(t.tool_call_id, "call_get_weather");
+                assert_eq!(t.content, "22");
+            }
+            other => panic!("expected Tool, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_ollama_to_chat_tool_message_no_tool_name_fallback() {
+        let req = minimal_chat_request(vec![OllamaMessage {
+            role: OllamaRole::Tool,
+            content: "result".to_string(),
+            images: None,
+            thinking: None,
+            tool_calls: None,
+            tool_name: None,
+        }]);
+        let chat: ChatCompletionsRequest = req.into();
+        match &chat.messages[0] {
+            ChatMessage::Tool(t) => assert_eq!(t.tool_call_id, "call_unknown"),
+            other => panic!("expected Tool, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_ollama_to_chat_options_promoted() {
+        let mut req = minimal_chat_request(vec![]);
+        req.options = Some(OllamaOptions {
+            temperature: Some(0.7),
+            top_p: Some(0.9),
+            num_predict: Some(512),
+            ..Default::default()
+        });
+        let chat: ChatCompletionsRequest = req.into();
+        assert_eq!(chat.temperature, Some(0.7));
+        assert_eq!(chat.top_p, Some(0.9));
+        assert_eq!(chat.max_tokens, Some(512));
+    }
+
+    #[test]
+    fn test_ollama_to_chat_negative_num_predict_not_mapped() {
+        let mut req = minimal_chat_request(vec![]);
+        req.options = Some(OllamaOptions {
+            num_predict: Some(-1),
+            ..Default::default()
+        });
+        let chat: ChatCompletionsRequest = req.into();
+        assert!(chat.max_tokens.is_none());
+    }
+
+    #[test]
+    fn test_ollama_to_chat_function_tool_converts() {
+        let mut req = minimal_chat_request(vec![]);
+        req.tools = Some(vec![OllamaTool::Function(OllamaFunctionTool {
+            name: "get_weather".to_string(),
+            description: Some("Get weather".to_string()),
+            parameters: json!({ "type": "object" }),
+        })]);
+        let chat: ChatCompletionsRequest = req.into();
+        let tools = chat.tools.unwrap();
+        assert_eq!(tools.len(), 1);
+        match &tools[0] {
+            ChatTool::Function(f) => {
+                assert_eq!(f.name, "get_weather");
+                assert_eq!(f.description.as_deref(), Some("Get weather"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_ollama_to_chat_stream_preserved() {
+        let mut req = minimal_chat_request(vec![]);
+        req.stream = Some(true);
+        let chat: ChatCompletionsRequest = req.into();
+        assert_eq!(chat.stream, Some(true));
+    }
+
+    // --- ChatCompletionsResponse → OllamaChatResponse ---
+
+    fn simple_chat_response(content: &str) -> ChatCompletionsResponse {
+        ChatCompletionsResponse {
+            id: Some("chatcmpl-1".to_string()),
+            created: Some(1700000000),
+            model: Some("gpt-4o".to_string()),
+            choices: vec![ChatChoice {
+                index: 0,
+                message: AssistantResponseMessage {
+                    role: Some("assistant".to_string()),
+                    content: Some(content.to_string()),
+                    tool_calls: None,
+                    reasoning_text: None,
+                    reasoning_opaque: None,
+                },
+                finish_reason: Some("stop".to_string()),
+            }],
+            usage: Some(ChatUsage {
+                prompt_tokens: Some(10),
+                completion_tokens: Some(5),
+                total_tokens: Some(15),
+                prompt_tokens_details: None,
+                completion_tokens_details: None,
+            }),
+        }
+    }
+
+    #[test]
+    fn test_chat_response_text_converts() {
+        let resp = simple_chat_response("Hello!");
+        let ollama: OllamaChatResponse = resp.into();
+        assert_eq!(ollama.message.content, "Hello!");
+        assert_eq!(ollama.message.role, OllamaRole::Assistant);
+        assert!(ollama.done);
+        assert_eq!(ollama.done_reason.as_deref(), Some("stop"));
+    }
+
+    #[test]
+    fn test_chat_response_model_preserved() {
+        let resp = simple_chat_response("Hi");
+        let ollama: OllamaChatResponse = resp.into();
+        assert_eq!(ollama.model, "gpt-4o");
+    }
+
+    #[test]
+    fn test_chat_response_created_at_iso8601() {
+        let resp = simple_chat_response("Hi");
+        let ollama: OllamaChatResponse = resp.into();
+        // epoch 1700000000 = 2023-11-14T22:13:20Z
+        assert_eq!(ollama.created_at, "2023-11-14T22:13:20Z");
+    }
+
+    #[test]
+    fn test_chat_response_usage_counts() {
+        let resp = simple_chat_response("Hi");
+        let ollama: OllamaChatResponse = resp.into();
+        assert_eq!(ollama.prompt_eval_count, Some(10));
+        assert_eq!(ollama.eval_count, Some(5));
+    }
+
+    #[test]
+    fn test_chat_response_tool_calls_convert() {
+        use crate::openai::chat_completions::request::{ToolCall, ToolCallFunction, ToolCallKind};
+        let resp = ChatCompletionsResponse {
+            id: None,
+            created: Some(1700000000),
+            model: Some("gpt-4o".to_string()),
+            choices: vec![ChatChoice {
+                index: 0,
+                message: AssistantResponseMessage {
+                    role: Some("assistant".to_string()),
+                    content: None,
+                    tool_calls: Some(vec![ToolCall {
+                        id: "call_get_weather".to_string(),
+                        kind: ToolCallKind::Function,
+                        function: ToolCallFunction {
+                            name: "get_weather".to_string(),
+                            arguments: r#"{"city":"Tokyo"}"#.to_string(),
+                        },
+                    }]),
+                    reasoning_text: None,
+                    reasoning_opaque: None,
+                },
+                finish_reason: Some("tool_calls".to_string()),
+            }],
+            usage: None,
+        };
+        let ollama: OllamaChatResponse = resp.into();
+        let tc = &ollama.message.tool_calls.as_ref().unwrap()[0];
+        assert_eq!(tc.function.name, "get_weather");
+        assert_eq!(tc.function.arguments["city"], "Tokyo");
+    }
+
+    #[test]
+    fn test_chat_response_duration_fields_absent() {
+        let resp = simple_chat_response("Hi");
+        let ollama: OllamaChatResponse = resp.into();
+        assert!(ollama.total_duration.is_none());
+        assert!(ollama.load_duration.is_none());
+        assert!(ollama.prompt_eval_duration.is_none());
+        assert!(ollama.eval_duration.is_none());
+    }
+
+    #[test]
+    fn test_chat_response_no_choices_gives_empty_content() {
+        let resp = ChatCompletionsResponse {
+            id: None,
+            created: None,
+            model: Some("gpt-4o".to_string()),
+            choices: vec![],
+            usage: None,
+        };
+        let ollama: OllamaChatResponse = resp.into();
+        assert_eq!(ollama.message.content, "");
+        assert!(ollama.done);
     }
 }
