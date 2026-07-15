@@ -129,11 +129,11 @@ fn convert_chat_message(msg: ChatMessage) -> Vec<InputItem> {
 
 fn convert_chat_tool(tool: ChatTool) -> Tool {
     match tool {
-        ChatTool::Function(f) => Tool::Function(FunctionTool {
-            name: f.name,
-            description: f.description,
-            parameters: f.parameters,
-            strict: f.strict,
+        ChatTool::Function(wrapper) => Tool::Function(FunctionTool {
+            name: wrapper.function.name,
+            description: wrapper.function.description,
+            parameters: wrapper.function.parameters,
+            strict: wrapper.function.strict,
         }),
     }
 }
@@ -345,13 +345,17 @@ mod tests {
 
     #[test]
     fn test_function_tool_maps() {
-        use crate::openai::chat_completions::request::{ChatFunctionTool, ChatTool};
+        use crate::openai::chat_completions::request::{
+            ChatFunctionTool, ChatFunctionToolWrapper, ChatTool,
+        };
         let mut req = minimal_chat_request(vec![]);
-        req.tools = Some(vec![ChatTool::Function(ChatFunctionTool {
-            name: "get_weather".to_string(),
-            description: Some("Get weather".to_string()),
-            parameters: serde_json::json!({"type": "object"}),
-            strict: None,
+        req.tools = Some(vec![ChatTool::Function(ChatFunctionToolWrapper {
+            function: ChatFunctionTool {
+                name: "get_weather".to_string(),
+                description: Some("Get weather".to_string()),
+                parameters: serde_json::json!({"type": "object"}),
+                strict: None,
+            },
         })]);
         let copilot: CopilotResponsesRequest = req.into();
         assert_eq!(copilot.tools.as_ref().unwrap().len(), 1);
