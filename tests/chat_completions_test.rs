@@ -206,8 +206,9 @@ async fn test_chat_completions_invalid_request() {
 
     // Test request with missing required field
     let request_body = json!({
-        "model": "gpt-4"
-        // Missing "messages" field
+        "model": "gpt-4",
+        "messages": [{"role": "user", "content": "hi"}]
+        // Missing "stream": true — should get 400
     });
 
     // Send request
@@ -218,7 +219,7 @@ async fn test_chat_completions_invalid_request() {
         .await
         .expect("Failed to send request");
 
-    // Should get 400 or 422 for invalid request
+    // Should get 400 for missing stream: true
     assert!(
         response.status().is_client_error(),
         "Expected client error status, got: {}",
