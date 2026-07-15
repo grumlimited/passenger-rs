@@ -3,17 +3,9 @@
 //! # OpenAI → Copilot request
 //! `OpenAIResponsesRequest` → `CopilotResponsesRequest`: field copy, Copilot-only
 //! extension fields (`prompt_cache_key`, `safety_identifier`) default to `None`.
-//!
-//! # Copilot → OpenAI response
-//! `CopilotResponsesResponse` → `OpenAIResponsesResponse`: field copy, stripping
-//! the Copilot-specific inline `error` field. The caller must inspect
-//! `CopilotResponsesResponse::error` before calling this conversion and handle
-//! it as an HTTP error if present.
 
 use crate::copilot::responses::request::CopilotResponsesRequest;
-use crate::copilot::responses::response::CopilotResponsesResponse;
 use crate::openai::responses::request::OpenAIResponsesRequest;
-use crate::openai::responses::response::OpenAIResponsesResponse;
 
 // ---------------------------------------------------------------------------
 // OpenAI request → Copilot request
@@ -48,31 +40,10 @@ impl From<OpenAIResponsesRequest> for CopilotResponsesRequest {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Copilot response → OpenAI response
-// ---------------------------------------------------------------------------
-
-impl From<CopilotResponsesResponse> for OpenAIResponsesResponse {
-    fn from(resp: CopilotResponsesResponse) -> Self {
-        // Callers must check `resp.error` before calling this conversion.
-        OpenAIResponsesResponse {
-            id: resp.id,
-            created_at: resp.created_at,
-            model: resp.model,
-            output: resp.output,
-            usage: resp.usage,
-            service_tier: resp.service_tier,
-            incomplete_details: resp.incomplete_details,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::copilot::responses::request::CopilotResponsesRequest;
-    use crate::copilot::responses::response::{CopilotResponsesResponse, InlineError, Usage};
     use crate::openai::responses::request::OpenAIResponsesRequest;
-    use crate::openai::responses::response::OpenAIResponsesResponse;
 
     fn minimal_openai_request() -> OpenAIResponsesRequest {
         OpenAIResponsesRequest {
@@ -95,24 +66,6 @@ mod tests {
             service_tier: None,
             parallel_tool_calls: None,
             max_tool_calls: None,
-        }
-    }
-
-    fn minimal_copilot_response() -> CopilotResponsesResponse {
-        CopilotResponsesResponse {
-            id: "resp-1".to_string(),
-            created_at: 1700000000,
-            model: "gpt-4o".to_string(),
-            output: vec![],
-            usage: Usage {
-                input_tokens: 10,
-                input_tokens_details: None,
-                output_tokens: 5,
-                output_tokens_details: None,
-            },
-            error: None,
-            service_tier: None,
-            incomplete_details: None,
         }
     }
 
@@ -155,39 +108,5 @@ mod tests {
         let copilot: CopilotResponsesRequest = minimal_openai_request().into();
         assert!(copilot.prompt_cache_key.is_none());
         assert!(copilot.safety_identifier.is_none());
-    }
-
-    // --- Copilot response → OpenAI response ---
-
-    #[test]
-    fn test_copilot_to_openai_response_basic_fields() {
-        let copilot_resp = minimal_copilot_response();
-        let openai_resp: OpenAIResponsesResponse = copilot_resp.into();
-        assert_eq!(openai_resp.id, "resp-1");
-        assert_eq!(openai_resp.model, "gpt-4o");
-        assert_eq!(openai_resp.usage.input_tokens, 10);
-        assert_eq!(openai_resp.usage.output_tokens, 5);
-    }
-
-    #[test]
-    fn test_copilot_to_openai_response_drops_error_field() {
-        let mut copilot_resp = minimal_copilot_response();
-        copilot_resp.error = Some(InlineError {
-            code: "model_not_found".to_string(),
-            message: "Model not found.".to_string(),
-        });
-        // Convert even if error is present — caller is responsible for
-        // checking before converting. After conversion the error is gone.
-        let openai_resp: OpenAIResponsesResponse = copilot_resp.into();
-        let serialized = serde_json::to_value(&openai_resp).unwrap();
-        assert!(serialized.get("error").is_none());
-    }
-
-    #[test]
-    fn test_copilot_to_openai_response_service_tier_preserved() {
-        let mut copilot_resp = minimal_copilot_response();
-        copilot_resp.service_tier = Some("enterprise".to_string());
-        let openai_resp: OpenAIResponsesResponse = copilot_resp.into();
-        assert_eq!(openai_resp.service_tier.as_deref(), Some("enterprise"));
     }
 }

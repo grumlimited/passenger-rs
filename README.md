@@ -4,110 +4,44 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 
-A high-performance Rust-based proxy server that converts GitHub Copilot into OpenAI-compatible and Ollama-compatible APIs.
+A Rust proxy server that exposes GitHub Copilot models through a streaming OpenAI-compatible API.
 
-## 💡 Use Case: Rig Integration
+**Only streaming responses are supported.** All requests must include `"stream": true`.
 
-This project enables using GitHub Copilot models with [Rig](https://github.com/0xPlaygrounds/rig) and other Ollama-compatible and OpenAI-compatible frameworks:
+## Use Case
 
-```rust
-use rig::providers::ollama;
-
-let client: Client<OllamaExt> = ollama::Client::builder()
-.api_key(Nothing)
-.base_url("http://127.0.0.1:8081/v1")
-.build()?;
-
-let model = client.completion_model("claude-sonnet-4.5");
-
-let agent = AgentBuilder::new(model)
-    .preamble("You're an AI assistant powered by GitHub Copilot")
-    .name("copilot-agent")
-    .max_tokens(2000)
-    .build();
-```
-
-or
+Point any OpenAI-compatible client at `http://127.0.0.1:8081` to use GitHub Copilot models transparently:
 
 ```rust
-use rig::providers::ollama;
+use rig::providers::openai;
 
-let client: Client<OpenAIResponsesExt> = openai::Client::builder()
-.api_key("no key")
-.base_url("http://127.0.0.1:8081/v1")
-.build()?;
+let client = openai::Client::builder()
+    .api_key("no-key")
+    .base_url("http://127.0.0.1:8081/v1")
+    .build()?;
 
 let model = client.completion_model("claude-sonnet-4.5");
-
-let agent = AgentBuilder::new(model)
-    .preamble("You're an AI assistant powered by GitHub Copilot")
-    .name("copilot-agent")
-    .max_tokens(2000)
-    .build();
 ```
 
-## 💡 Use Case: Open WebUI Integration
+Or use any other OpenAI-compatible SDK, tool, or application by pointing it at the proxy.
 
-The proxy supports streaming and can be used with [Open WebUI](https://docs.openwebui.com/) as a chat interface over GitHub Copilot models.
+## Quick Start
 
-**As a local Ollama connection:**
-
-Point Open WebUI at the proxy using its Ollama connection setting:
-
-```
-http://127.0.0.1:8081
-```
-
-Open WebUI will discover available models via `GET /api/tags` and stream responses via `POST /api/chat`.
-
-**As a local OpenAI connection:**
-
-Alternatively, configure Open WebUI with a custom OpenAI-compatible endpoint:
-
-```
-http://127.0.0.1:8081/v1
-```
-
-Set any non-empty string as the API key (the proxy does not validate it). Open WebUI will use `GET /v1/models` to list models and `POST /v1/chat/completions` for streaming chat.
-
-## 🚀 Features
-
-- **GitHub OAuth Authentication**: Secure device flow authentication with GitHub
-- **Token Management**: Automatic token caching, validation, and refresh
-- **OpenAI Compatibility**: Drop-in replacement for OpenAI API clients
-- **Ollama Compatibility**: Ollama-format responses via `/v1/api/chat` endpoint
-- **Custom Token Paths**: Flexible token storage locations
-- **Health Monitoring**: Built-in health check endpoint
-- **Request/Response Transformation**: Seamless conversion between OpenAI, Ollama, and Copilot formats
-
-## 📋 Table of Contents
-
-- [Quick Start](#-quick-start)
-- [Installation](#-installation)
-- [Running as a System Service](#-running-as-a-system-service)
-- [Usage](#-usage)
-- [Configuration](#-configuration)
-- [Architecture](#-architecture)
-- [API Endpoints](#-api-endpoints)
-- [CLI Reference](#️-cli-reference)
-- [Development](#️-development)
-- [Testing](#-testing)
-- [Troubleshooting](#-troubleshooting)
-
-## 🏁 Quick Start
-
-### 1. Download
-
-Download a pre-built binary from the releases page, or install the packaged version for CentOS or Arch Linux.
+### 1. Download or build
 
 ```bash
-chmod +x ./passenger-rs # if using binary straight
+# From source
+git clone https://github.com/grumlimited/passenger-rs.git
+cd passenger-rs
+cargo build --release
 ```
+
+Or download a pre-built binary from the [releases page](https://github.com/grumlimited/passenger-rs/releases).
 
 ### 2. Authenticate with GitHub
 
 ```bash
-./passenger-rs -- --login
+./passenger-rs --login
 ```
 
 This will:
@@ -122,333 +56,122 @@ This will:
 ./passenger-rs
 ```
 
-The server will start on `http://127.0.0.1:8081` by default.
+The server starts on `http://127.0.0.1:8081` by default.
 
 ### 4. Test the connection
-
-**OpenAI format:**
 
 ```bash
 curl http://127.0.0.1:8081/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-4",
-    "messages": [
-      {"role": "user", "content": "Hello, how are you?"}
-    ]
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Hello"}],
+    "stream": true
   }'
 ```
 
-**Ollama format:**
+## API Endpoints
 
-```bash
-curl http://127.0.0.1:8081/v1/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-4",
-    "messages": [
-      {"role": "user", "content": "Hello, how are you?"}
-    ]
-  }'
+### POST /v1/chat/completions
+
+OpenAI-compatible streaming chat completions. Requires `"stream": true`.
+
+Routes to Copilot `/responses` for gpt-5+ models (excluding gpt-5-mini), and to Copilot `/chat/completions` for all other models.
+
+**Example request:**
+
+```json
+{
+  "model": "gpt-4o",
+  "messages": [
+    {"role": "system", "content": "You are a helpful assistant."},
+    {"role": "user", "content": "Hello!"}
+  ],
+  "stream": true
+}
 ```
 
-## 📦 Installation
+Response is a `text/event-stream` of `ChatCompletionChunk` SSE events.
 
-### From Source
+### POST /v1/responses
 
-```bash
-git clone https://github.com/yourusername/passenger-rs.git
-cd passenger-rs
-cargo build --release
-```
+OpenAI Responses API streaming endpoint. Requires `"stream": true`.
 
-The binary will be available at `target/release/passenger-rs`.
+The Copilot Responses SSE format is identical to the OpenAI Responses SSE format — the stream is passed through byte-for-byte.
+
+### GET /v1/models
+
+Lists available models from the GitHub Copilot model catalog in OpenAI format.
+
+### GET /health
+
+Returns `200 OK` with body `OK`.
+
+## Installation
 
 ### System Requirements
 
 - Rust 1.70 or later
 - Active GitHub Copilot subscription
-- Internet connection for GitHub OAuth and Copilot API
 
-## 🔧 Running as a System Service
+### System Service (Linux)
 
 Pre-built packages for Ubuntu and Arch Linux are available on the [releases page](https://github.com/grumlimited/passenger-rs/releases).
 
-### Arch Linux Installation
-
-Install using your AUR helper:
-
 ```bash
+# Arch Linux
 yay -U passenger-rs-0.0.1-1-x86_64.pkg.tar.zst
-```
 
-### Ubuntu/Debian Installation
-
-```bash
+# Ubuntu/Debian
 sudo dpkg -i passenger-rs-0.0.1-x86_64.deb
 ```
 
-### Managing the Service
-
-The package includes a systemd user service that can be managed with standard systemctl commands:
+Manage with systemd:
 
 ```bash
-# Start the service
 systemctl --user start passenger-rs.service
-
-# Enable auto-start on login
 systemctl --user enable passenger-rs.service
-
-# Check service status
 systemctl --user status passenger-rs.service
 ```
 
-**Example output:**
+**Note:** Before starting the service, authenticate with `--login`.
 
-```
-● passenger-rs.service - passenger-rs - GitHub Copilot Proxy
-     Loaded: loaded (/usr/lib/systemd/user/passenger-rs.service; disabled; preset: enabled)
-     Active: active (running) since Tue 2026-02-03 22:44:17 CET; 1s ago
-     [...]
-     INFO passenger_rs: OpenAI API endpoint: http://127.0.0.1:8081/v1/chat/completions
-     INFO passenger_rs: Ollama API endpoint: http://127.0.0.1:8081/v1/api/chat
-     INFO passenger_rs: Models endpoint: http://127.0.0.1:8081/v1/models
-```
+## Configuration
 
-**Note:** Before starting the service, you must authenticate with GitHub Copilot using `--login` (see [Usage](#-usage)).
-
-## 🎯 Usage
-
-### Basic Usage
-
-```bash
-# Start the server with default configuration
-./passenger-rs
-
-# Use custom configuration file
-./passenger-rs --config /path/to/config.toml
-
-# Authenticate with GitHub
-./passenger-rs --login
-
-# Refresh expired token
-./passenger-rs --refresh-token
-```
-
-### Custom Token Paths
-
-You can specify custom locations for token storage:
-
-```bash
-# Login with custom token paths
-./passenger-rs --login \
-  --access-token-path /custom/path/access_token.json \
-  --copilot-token-path /custom/path/copilot_token.json
-
-# Refresh token using custom paths
-./passenger-rs --refresh-token \
-  --access-token-path /custom/path/access_token.json \
-  --copilot-token-path /custom/path/copilot_token.json
-
-# Start server with custom copilot token path
-./passenger-rs --copilot-token-path /custom/path/copilot_token.json
-```
-
-## ⚙️ Configuration
-
-Edit `config.toml` to customize the proxy behavior:
+Edit `config.toml`:
 
 ```toml
 [github]
-# GitHub OAuth device code endpoint
 device_code_url = "https://github.com/login/device/code"
-
-# GitHub OAuth access token endpoint
 oauth_token_url = "https://github.com/login/oauth/access_token"
-
-# GitHub Copilot token endpoint
 copilot_token_url = "https://api.github.com/copilot_internal/v2/token"
-
-# GitHub Copilot models catalog
 copilot_models_url = "https://models.github.ai/catalog/models"
-
-# GitHub Copilot public client ID (same for all users)
 client_id = "Iv1.b507a08c87ecfe98"
 
 [copilot]
-# GitHub Copilot API base URL
 api_base_url = "https://api.githubcopilot.com"
 
 [server]
-# Port to listen on
 port = 8081
-
-# Host to bind to
 host = "127.0.0.1"
 ```
 
-### Environment Variables
-
-Currently, configuration is file-based. Environment variable support may be added in future versions.
-
-## 🏗️ Architecture
-
-### High-Level Overview
+## CLI Reference
 
 ```
-┌─────────────────┐         ┌──────────────────┐         ┌──────────────────┐
-│   OpenAI Client │ OpenAI  │   passenger-rs   │ Copilot │ GitHub Copilot   │
-│   (Any SDK)     ├────────►│   Proxy Server   ├────────►│  API             │
-│                 │ Format  │                  │ Format  │                  │
-└─────────────────┘         └──────────────────┘         └──────────────────┘
-                                     │
-                                     │ OAuth Flow
-                                     ▼
-                            ┌─────────────────┐
-                            │  GitHub OAuth   │
-                            │  Device Flow    │
-                            └─────────────────┘
-                                     │
-                                     │ Token Storage
-                                     ▼
-                            ┌─────────────────┐
-                            │  Token Cache    │
-                            │  ~/.config/     │
-                            │  passenger-rs/  │
-                            └─────────────────┘
-```
-
-## 🔌 API Endpoints
-
-### POST /v1/chat/completions
-
-OpenAI-compatible chat completions endpoint.
-
-**Request:**
-
-```json
-{
-  "model": "gpt-4",
-  "messages": [
-    {
-      "role": "system",
-      "content": "You are a helpful assistant."
-    },
-    {
-      "role": "user",
-      "content": "Hello!"
-    }
-  ],
-  "temperature": 0.7,
-  "max_tokens": 100
-}
-```
-
-**Response:**
-
-```json
-{
-  "id": "chatcmpl-123",
-  "object": "chat.completion",
-  "created": 1677652288,
-  "model": "gpt-4",
-  "choices": [
-    {
-      "index": 0,
-      "message": {
-        "role": "assistant",
-        "content": "Hello! How can I help you today?"
-      },
-      "finish_reason": "stop"
-    }
-  ],
-  "usage": {
-    "prompt_tokens": 12,
-    "completion_tokens": 10,
-    "total_tokens": 22
-  }
-}
-```
-**Note:** Streaming is supported. When `"stream": true` is set, the response is returned as server-sent events (SSE) using `text/event-stream`.
-
-### POST /v1/api/chat
-
-Ollama-compatible chat endpoint.
-
-**Request:**
-
-```json
-{
-  "model": "gpt-4",
-  "messages": [
-    {
-      "role": "user",
-      "content": "Hello!"
-    }
-  ],
-  "temperature": 0.7,
-  "max_tokens": 100
-}
-```
-
-**Response:**
-
-```json
-{
-  "model": "gpt-4",
-  "created_at": "2023-11-07T05:31:56Z",
-  "message": {
-    "role": "assistant",
-    "content": "Hello! How can I help you today?"
-  },
-  "done": true,
-  "done_reason": "stop",
-  "prompt_eval_count": 12,
-  "eval_count": 10
-}
-```
-
-**Note:** This endpoint accepts OpenAI-format requests but returns Ollama-format responses for compatibility with Ollama clients.
-
-### GET /v1/models
-
-Lists available models from GitHub Copilot catalog.
-
-**Response:**
-
-```json
-{
-  "object": "list",
-  "data": [
-    {
-      "id": "gpt-4",
-      "object": "model",
-      "created": 1677652288,
-      "owned_by": "openai"
-    }
-  ]
-}
-```
-
-## 🖥️ CLI Reference
-
-```
-passenger-rs - GitHub Copilot to OpenAI API Proxy
+passenger-rs - GitHub Copilot streaming proxy (OpenAI-compatible)
 
 Usage: passenger-rs [OPTIONS]
 
 Options:
   -c, --config <CONFIG>
-          Path to the configuration file
-          [default: config.toml]
+          Path to the configuration file [default: config.toml]
 
       --login
           Perform GitHub OAuth device flow login
-          Initiates interactive authentication with GitHub
 
       --refresh-token
           Refresh Copilot token using existing access token
-          Useful when Copilot token expires
 
       --access-token-path <ACCESS_TOKEN_PATH>
           Path to the access token file
@@ -465,233 +188,63 @@ Options:
           Print version information
 ```
 
-## 🛠️ Development
+## Token Management
 
-### Prerequisites
+Tokens are stored in `~/.config/passenger-rs/`:
+
+- **Access Token** (`access_token.json`): Long-lived, used to obtain Copilot tokens
+- **Copilot Token** (`token.json`): Short-lived (~25 minutes), auto-refreshed 60 seconds before expiry
+
+Custom paths:
 
 ```bash
-# Install Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# Verify installation
-rustc --version
-cargo --version
+./passenger-rs --login \
+  --access-token-path /custom/path/access_token.json \
+  --copilot-token-path /custom/path/copilot_token.json
 ```
 
-### Building
+## Development
 
 ```bash
-# Development build
-cargo build
-
-# Release build (optimized)
+cargo build          # debug build
 cargo build --release
-
-# Check without building (fast)
-cargo check
-```
-
-### Code Quality
-
-```bash
-# Format code
-cargo fmt
-
-# Check formatting
-cargo fmt --check
-
-# Run clippy linter
-cargo clippy --all-targets --all-features -- -D warnings
-
-# Fix clippy warnings automatically
-cargo clippy --fix
-```
-
-## 🧪 Testing
-
-### Running Tests
-
-```bash
-# Run all tests
 cargo test
-
-# Run with output
-cargo test -- --nocapture
-
-# Run specific test
-cargo test test_chat_completions_without_auth
-
-# Run only unit tests
-cargo test --lib
-
-# Run only integration tests
-cargo test --test '*'
-
-# Run ignored tests (require real authentication)
-cargo test -- --ignored
+cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt
 ```
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
-### Common Issues
-
-#### "No authentication token found"
-
-**Solution:**
-
+**"No authentication token found"**
 ```bash
 ./passenger-rs --login
 ```
 
-#### "Access token file does not exist"
+**"Only streaming is supported"**
 
-You specified a custom access token path but the file doesn't exist.
+Add `"stream": true` to your request body.
 
-**Solution:**
+**"Address already in use"**
 
+Change `port` in `config.toml`, or kill the process using port 8081:
 ```bash
-# Login will create the token at the default location
-./passenger-rs --login
-
-# Then copy to your custom location, or re-login with custom path
-./passenger-rs --login --access-token-path /custom/path/access.json
-```
-
-#### "Failed to refresh Copilot token: 401 Unauthorized"
-
-Your access token has expired or is invalid.
-
-**Solution:**
-
-```bash
-./passenger-rs --login
-```
-
-#### "Address already in use"
-
-Another process is using port 8081.
-
-**Solutions:**
-
-```bash
-# Option 1: Change port in config.toml
-[server]
-port = 8081
-
-# Option 2: Find and kill the process
 lsof -ti:8081 | xargs kill -9
 ```
 
-#### "Connection refused" when making API calls
-
-Server is not running.
-
-**Solution:**
-
-```bash
-./passenger-rs
-```
-
-### Debug Mode
-
-Enable debug logging:
-
+**Enable debug logging**
 ```bash
 RUST_LOG=debug ./passenger-rs
 ```
 
-### Token Inspection
+## License
 
-```bash
-# View token details
-cat ~/.config/passenger-rs/token.json | jq
+GPL-3.0 — see [LICENSE](LICENSE).
 
-# Check expiration
-jq '.expires_at' ~/.config/passenger-rs/token.json
-```
+## Acknowledgments
 
-## 📝 Token Management
+- Based on [copilot-to-api](https://github.com/Alorse/copilot-to-api)
+- Built with [Axum](https://github.com/tokio-rs/axum), [Tokio](https://tokio.rs/), [Clap](https://github.com/clap-rs/clap)
 
-### Token Locations
+## Disclaimer
 
-By default, tokens are stored in:
-
-- **Access Token**: `~/.config/passenger-rs/access_token.json`
-- **Copilot Token**: `~/.config/passenger-rs/token.json`
-
-### Token Lifecycle
-
-- **Access Token**: Long-lived, used to obtain Copilot tokens
-- **Copilot Token**: Short-lived (~25 minutes), auto-refreshed
-- **Expiration Buffer**: Tokens refresh 60 seconds before expiration
-
-### Manual Token Refresh
-
-```bash
-# Refresh using default paths
-./passenger-rs --refresh-token
-
-# Refresh using custom paths
-./passenger-rs --refresh-token \
-  --access-token-path /path/to/access.json \
-  --copilot-token-path /path/to/copilot.json
-```
-
-### Security Considerations
-
-- Tokens contain sensitive credentials
-- Store tokens in secure locations with appropriate permissions
-- Consider using encrypted filesystems for token storage
-- Never commit tokens to version control
-
-```bash
-# Set secure permissions
-chmod 600 ~/.config/passenger-rs/*.json
-```
-
-## 🚀 Performance
-
-- **Language**: Rust for memory safety and performance
-- **Async Runtime**: Tokio for efficient concurrency
-- **Web Framework**: Axum for fast HTTP handling
-- **HTTP Client**: Reqwest with connection pooling
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## 📄 License
-
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
-
-### GPL-3.0 Summary
-
-This means you can:
-
-- ✅ Use the software for any purpose
-- ✅ Study and modify the source code
-- ✅ Share the software with others
-- ✅ Share your modifications
-
-**Important**: If you distribute modified versions, you must:
-
-- 📝 Make the source code available
-- 🔓 License it under GPL-3.0
-- 📋 Document your changes
-- 📄 Include the original copyright notice
-
-## 🙏 Acknowledgments
-
-- Based on the [copilot-to-api](https://github.com/Alorse/copilot-to-api) project
-- Built with [Axum](https://github.com/tokio-rs/axum) web framework
-- Uses [Tokio](https://tokio.rs/) async runtime
-- CLI powered by [Clap](https://github.com/clap-rs/clap)
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/yourusername/passenger-rs/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/passenger-rs/discussions)
-
-## ⚠️ Disclaimer
-
-This project is for educational purposes. Make sure you comply with GitHub's Terms of Service and Copilot's usage policies.
+Ensure you comply with GitHub's Terms of Service and Copilot's usage policies.

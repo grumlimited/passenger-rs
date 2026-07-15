@@ -1,7 +1,9 @@
-//! Copilot `/responses` API — non-streaming response types.
+//! Copilot `/responses` API — response types.
 //!
 //! Translated from the Zod response schema in
 //! `openai-responses-language-model.ts` (`doGenerate` handler).
+
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 

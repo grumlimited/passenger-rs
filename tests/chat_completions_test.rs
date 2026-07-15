@@ -161,32 +161,18 @@ async fn test_chat_completions_without_auth() {
     let status = response.status();
     let response_json: serde_json::Value = response.json().await.expect("Failed to parse JSON");
 
-    // Handle both scenarios: with and without cached tokens
-    if status.is_success() {
-        // Tokens still exist from previous --login, verify valid response structure
-        println!("Note: Valid tokens found, testing with authenticated request");
-        assert_eq!(response_json["object"], "chat.completion");
-        assert!(response_json["choices"].is_array());
-        assert!(response_json["usage"].is_object());
-        println!(
-            "Success response: {}",
-            serde_json::to_string_pretty(&response_json).unwrap()
-        );
-    } else {
-        // No valid tokens, should get error
-        assert!(
-            status == 401 || status == 500,
-            "Expected 401 or 500 without authentication, got: {}",
-            status
-        );
-        assert!(response_json["error"].is_object());
-        assert!(response_json["error"]["message"].is_string());
-        assert!(response_json["error"]["type"].is_string());
-        println!(
-            "Error response: {}",
-            serde_json::to_string_pretty(&response_json).unwrap()
-        );
-    }
+    // A non-streaming request always gets 400 now (streaming-only proxy)
+    assert_eq!(
+        status, 400,
+        "Expected 400 Bad Request for non-streaming request, got: {}",
+        status
+    );
+    assert!(response_json["error"].is_object());
+    assert!(response_json["error"]["message"].is_string());
+    println!(
+        "Error response: {}",
+        serde_json::to_string_pretty(&response_json).unwrap()
+    );
 }
 
 /// Test invalid request body
@@ -258,9 +244,9 @@ async fn setup_test_tokens() {
     panic!("Cannot run integration test without valid authentication");
 }
 
-/// Test for streaming support (when implemented)
+/// Test for streaming support
 #[tokio::test]
-#[ignore] // TODO: Implement streaming support
+#[ignore] // Requires real authentication — run with: cargo test test_chat_completions_streaming -- --ignored
 async fn test_chat_completions_streaming() {
     // Load config
     let mut config = Config::from_file("config.toml").expect("Failed to load config");
