@@ -11,6 +11,7 @@
 //! format, so the stream is passed through byte-for-byte.
 
 use axum::{
+    Json,
     body::Body,
     extract::State,
     http::{StatusCode, header},
@@ -22,11 +23,11 @@ use tracing::error;
 use crate::copilot::responses::request::CopilotResponsesRequest;
 use crate::openai::responses::request::OpenAIResponsesRequest;
 
-use super::{AppError, AppState, JsonBody, Server};
+use super::{AppError, AppState, Server};
 
 pub async fn handler(
     State(state): State<Arc<AppState>>,
-    JsonBody(request): JsonBody<OpenAIResponsesRequest>,
+    Json(request): Json<OpenAIResponsesRequest>,
 ) -> Result<Response, AppError> {
     if request.stream != Some(true) {
         return Err(AppError::BadRequest(
