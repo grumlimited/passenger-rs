@@ -24,8 +24,7 @@ pub async fn handler(
         .client
         .get(&state.config.github.copilot_models_url)
         .bearer_auth(&token.token)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("Copilot-Integration-Id", "vscode-chat")
         .send()
         .await
         .map_err(|e| {
@@ -43,14 +42,27 @@ pub async fn handler(
         )));
     }
 
-    let copilot_response: CopilotModelsResponse = response.json().await.map_err(|e| {
+    let body = response.text().await.map_err(|e| {
+        error!("Failed to read Copilot models response body: {}", e);
+        AppError::InternalServerError(format!("Failed to read Copilot models response body: {}", e))
+    })?;
+
+    let copilot_response: CopilotModelsResponse = serde_json::from_str(&body).map_err(|e| {
         error!("Failed to parse Copilot models response: {}", e);
         AppError::InternalServerError(format!("Failed to parse Copilot models response: {}", e))
     })?;
 
+    let visible_models = copilot_response.visible_models();
+
     info!(
         "Successfully fetched {} models",
-        copilot_response.models.len()
+        visible_models.len()
     );
-    Ok(Json(copilot_response.into()))
+    Ok(Json(CopilotModelsResponse {
+        data: visible_models,
+        object: "list".to_string(),
+    }
+    .into()))
+    
+    
 }
