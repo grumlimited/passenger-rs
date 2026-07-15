@@ -101,12 +101,12 @@ pub async fn handler(
         //   next_tool_index — next available tool_call_index
         type StreamState = (
             futures_util::stream::BoxStream<'static, Result<Bytes, reqwest::Error>>,
-            String,          // buf
-            String,          // model
-            Option<String>,  // id
-            Option<u64>,     // created
+            String,            // buf
+            String,            // model
+            Option<String>,    // id
+            Option<u64>,       // created
             HashMap<u32, u32>, // tool_index_map
-            u32,             // next_tool_index
+            u32,               // next_tool_index
         );
 
         let initial_state: StreamState = (
@@ -121,7 +121,15 @@ pub async fn handler(
 
         let translated_stream = futures_util::stream::unfold(
             initial_state,
-            |(mut stream, mut buf, model, mut id, mut created, mut tool_index_map, mut next_tool_index)| async move {
+            |(
+                mut stream,
+                mut buf,
+                model,
+                mut id,
+                mut created,
+                mut tool_index_map,
+                mut next_tool_index,
+            )| async move {
                 loop {
                     if let Some(newline_pos) = buf.find('\n') {
                         let line = buf[..newline_pos].trim_end_matches('\r').to_string();
@@ -138,7 +146,15 @@ pub async fn handler(
                             let bytes = Bytes::from(sse_data);
                             return Some((
                                 Ok::<_, std::convert::Infallible>(bytes),
-                                (stream, buf, model, id, created, tool_index_map, next_tool_index),
+                                (
+                                    stream,
+                                    buf,
+                                    model,
+                                    id,
+                                    created,
+                                    tool_index_map,
+                                    next_tool_index,
+                                ),
                             ));
                         }
                         continue;
@@ -151,7 +167,18 @@ pub async fn handler(
                         Some(Err(e)) => {
                             error!("Stream error: {}", e);
                             let done = Bytes::from("data: [DONE]\n\n");
-                            return Some((Ok(done), (stream, buf, model, id, created, tool_index_map, next_tool_index)));
+                            return Some((
+                                Ok(done),
+                                (
+                                    stream,
+                                    buf,
+                                    model,
+                                    id,
+                                    created,
+                                    tool_index_map,
+                                    next_tool_index,
+                                ),
+                            ));
                         }
                         None => {
                             if !buf.is_empty() {
@@ -166,7 +193,18 @@ pub async fn handler(
                                     &mut next_tool_index,
                                 ) {
                                     let bytes = Bytes::from(sse_data);
-                                    return Some((Ok(bytes), (stream, buf, model, id, created, tool_index_map, next_tool_index)));
+                                    return Some((
+                                        Ok(bytes),
+                                        (
+                                            stream,
+                                            buf,
+                                            model,
+                                            id,
+                                            created,
+                                            tool_index_map,
+                                            next_tool_index,
+                                        ),
+                                    ));
                                 }
                             }
                             return None;
