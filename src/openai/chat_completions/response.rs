@@ -1,7 +1,6 @@
 //! Standard OpenAI `/chat/completions` API — streaming response types.
 //!
-//! Translated from `OpenAICompatibleChatResponseSchema` in
-//! `openai-compatible-chat-language-model.ts`.
+//! Spec: https://platform.openai.com/docs/api-reference/chat/streaming
 //!
 //! Copilot-specific additions (`reasoning_text`, `reasoning_opaque`) are
 //! included on `ChatDelta`; standard clients ignore them.
@@ -47,8 +46,14 @@ pub struct CompletionTokensDetails {
 // ---------------------------------------------------------------------------
 
 /// A single SSE chunk for `/chat/completions` streaming.
+///
+/// The `object` field is always `"chat.completion.chunk"` per spec.
+/// The `id` and `created` fields are consistent across all chunks for the
+/// same response (tracked from the first `ResponseCreated` event).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ChatCompletionChunk {
+    /// Always `"chat.completion.chunk"`.
+    pub object: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -77,6 +82,8 @@ pub struct ChatDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCallDelta>>,
     /// Copilot-specific: reasoning text delta.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -91,6 +98,9 @@ pub struct ToolCallDelta {
     pub index: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    /// Always `"function"` on the first delta for a given tool call.
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function: Option<ToolCallFunctionDelta>,
 }
@@ -111,6 +121,7 @@ mod tests {
     #[test]
     fn test_parse_streaming_chunk_text_delta() {
         let json = json!({
+            "object": "chat.completion.chunk",
             "id": "chatcmpl-abc",
             "created": 1700000000_u64,
             "model": "gpt-4o",
@@ -123,13 +134,30 @@ mod tests {
             ]
         });
         let chunk: ChatCompletionChunk = serde_json::from_value(json).unwrap();
+        assert_eq!(chunk.object, "chat.completion.chunk");
         let delta = chunk.choices[0].delta.as_ref().unwrap();
         assert_eq!(delta.content.as_deref(), Some("Hi"));
     }
 
     #[test]
+    fn test_serialize_chunk_includes_object_field() {
+        let chunk = ChatCompletionChunk {
+            object: "chat.completion.chunk".to_string(),
+            id: Some("chatcmpl-abc".to_string()),
+            created: Some(1700000000),
+            model: Some("gpt-4o".to_string()),
+            choices: vec![],
+            usage: None,
+        };
+        let json = serde_json::to_value(&chunk).unwrap();
+        assert_eq!(json["object"], "chat.completion.chunk");
+        assert_eq!(json["id"], "chatcmpl-abc");
+    }
+
+    #[test]
     fn test_parse_streaming_chunk_tool_call_delta() {
         let json = json!({
+            "object": "chat.completion.chunk",
             "choices": [
                 {
                     "index": 0,
@@ -138,6 +166,7 @@ mod tests {
                             {
                                 "index": 0,
                                 "id": "call-1",
+                                "type": "function",
                                 "function": { "name": "get_weather", "arguments": "" }
                             }
                         ]
@@ -154,6 +183,7 @@ mod tests {
             .tool_calls
             .as_ref()
             .unwrap()[0];
+        assert_eq!(tc.kind.as_deref(), Some("function"));
         assert_eq!(
             tc.function.as_ref().unwrap().name.as_deref(),
             Some("get_weather")
@@ -163,6 +193,7 @@ mod tests {
     #[test]
     fn test_parse_streaming_chunk_usage() {
         let json = json!({
+            "object": "chat.completion.chunk",
             "choices": [],
             "usage": {
                 "prompt_tokens": 5,
@@ -180,5 +211,22 @@ mod tests {
             usage.completion_tokens_details.unwrap().reasoning_tokens,
             Some(3)
         );
+    }
+
+    #[test]
+    fn test_chat_delta_refusal_field() {
+        let json = json!({
+            "object": "chat.completion.chunk",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": { "refusal": "I cannot help with that." },
+                    "finish_reason": "stop"
+                }
+            ]
+        });
+        let chunk: ChatCompletionChunk = serde_json::from_value(json).unwrap();
+        let delta = chunk.choices[0].delta.as_ref().unwrap();
+        assert_eq!(delta.refusal.as_deref(), Some("I cannot help with that."));
     }
 }

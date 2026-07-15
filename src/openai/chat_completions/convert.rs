@@ -4,21 +4,34 @@
 //! Maps `messages` → Copilot `input` items, adapts tools/tool_choice schemas,
 //! and carries over all standard parameters.
 //!
+//! Notable mappings:
+//! - `max_tokens` → `max_output_tokens`
+//! - `response_format` → `text.format`
+//! - `reasoning_effort` → `reasoning.effort`
+//! - `verbosity` → `text.verbosity`
+//! - `thinking_budget` is silently dropped (no Copilot equivalent)
+//! - `frequency_penalty`, `presence_penalty`, `stop`, `seed` have no Copilot equivalent
+//!
 //! In the Copilot Responses API multi-turn format, assistant tool calls are
 //! separate `FunctionCallItem` input items (not nested inside the assistant
-//! message). This matches how opencode sends them.
+//! message). In the Copilot API, `FunctionCallItem.id` is the item ID
+//! (typically the same as `call_id` for OpenAI-origin calls) and
+//! `FunctionCallItem.call_id` is the function call correlation ID that must
+//! match the `ToolResult.call_id` in the next turn.
 
 use crate::copilot::responses::request::{
     AssistantContentPart, AssistantMessage as CopilotAssistantMessage, CopilotResponsesRequest,
-    FunctionCallItem, FunctionCallItemKind, FunctionTool, InputImage, InputItem,
-    SystemMessage as CopilotSystemMessage, Tool, ToolChoice, ToolChoiceFunction, ToolChoiceMode,
-    ToolResult, ToolResultKind, UserContent as CopilotUserContent,
-    UserContentPart as CopilotUserContentPart, UserMessage as CopilotUserMessage,
+    FunctionCallItem, FunctionCallItemKind, FunctionTool, InputImage, InputItem, ReasoningConfig,
+    SystemMessage as CopilotSystemMessage, TextConfig, TextFormat, Tool, ToolChoice,
+    ToolChoiceFunction, ToolChoiceMode, ToolResult, ToolResultKind,
+    UserContent as CopilotUserContent, UserContentPart as CopilotUserContentPart,
+    UserMessage as CopilotUserMessage,
 };
 use crate::openai::chat_completions::request::{
     ChatCompletionsRequest, ChatMessage, ChatTool, ChatToolChoice, ChatToolChoiceMode,
-    SystemContent, UserContent, UserContentPart,
+    ResponseFormat, SystemContent, UserContent, UserContentPart,
 };
+
 // ---------------------------------------------------------------------------
 // Chat messages → Copilot input items
 // ---------------------------------------------------------------------------
@@ -74,7 +87,11 @@ fn convert_chat_message(msg: ChatMessage) -> Vec<InputItem> {
                 }));
             }
 
-            // Tool calls become separate FunctionCallItem input items
+            // Tool calls become separate FunctionCallItem input items.
+            // In the Copilot Responses API:
+            //   - `id` is the item ID (we use the OpenAI tool_call id)
+            //   - `call_id` is the correlation ID that must match ToolResult.call_id
+            // For OpenAI-origin tool calls these are the same value.
             for tc in a.tool_calls.unwrap_or_default() {
                 items.push(InputItem::FunctionCall(FunctionCallItem {
                     kind: FunctionCallItemKind::FunctionCall,
@@ -136,6 +153,45 @@ fn convert_chat_tool_choice(choice: ChatToolChoice) -> ToolChoice {
 }
 
 // ---------------------------------------------------------------------------
+// response_format → text.format
+// ---------------------------------------------------------------------------
+
+fn convert_response_format(fmt: ResponseFormat) -> TextFormat {
+    match fmt {
+        ResponseFormat::Text => {
+            // No direct `text` variant in Copilot's TextFormat — treated as plain text (no format)
+            // Callers should leave `text.format` as None for `ResponseFormat::Text`.
+            // This arm is unreachable via convert_text_config, but kept for completeness.
+            TextFormat::JsonObject // fallback: shouldn't be reached
+        }
+        ResponseFormat::JsonObject => TextFormat::JsonObject,
+        ResponseFormat::JsonSchema { json_schema } => TextFormat::JsonSchema {
+            name: json_schema.name,
+            description: json_schema.description,
+            schema: json_schema.schema,
+            strict: None,
+        },
+    }
+}
+
+fn convert_text_config(
+    response_format: Option<ResponseFormat>,
+    verbosity: Option<String>,
+) -> Option<TextConfig> {
+    let format = match response_format {
+        // `Text` means "no special format" — don't set text.format at all
+        None | Some(ResponseFormat::Text) => None,
+        Some(fmt) => Some(convert_response_format(fmt)),
+    };
+
+    if format.is_none() && verbosity.is_none() {
+        None
+    } else {
+        Some(TextConfig { format, verbosity })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // ChatCompletionsRequest → CopilotResponsesRequest
 // ---------------------------------------------------------------------------
 
@@ -153,6 +209,15 @@ impl From<ChatCompletionsRequest> for CopilotResponsesRequest {
 
         let tool_choice = req.tool_choice.map(convert_chat_tool_choice);
 
+        // reasoning.effort comes from reasoning_effort; thinking_budget has no equivalent
+        let reasoning = req.reasoning_effort.map(|effort| ReasoningConfig {
+            effort: Some(effort),
+            summary: None,
+        });
+
+        // text.format comes from response_format; text.verbosity from verbosity
+        let text = convert_text_config(req.response_format, req.verbosity);
+
         CopilotResponsesRequest {
             model: req.model,
             input,
@@ -165,9 +230,9 @@ impl From<ChatCompletionsRequest> for CopilotResponsesRequest {
             instructions: None,
             store: None,
             previous_response_id: None,
-            reasoning: None,
+            reasoning,
             truncation: None,
-            text: None,
+            text,
             metadata: None,
             user: req.user,
             service_tier: None,
@@ -182,9 +247,10 @@ impl From<ChatCompletionsRequest> for CopilotResponsesRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::copilot::responses::request::{InputItem, ToolChoice, ToolChoiceMode};
+    use crate::copilot::responses::request::{InputItem, TextFormat, ToolChoice, ToolChoiceMode};
     use crate::openai::chat_completions::request::{
-        AssistantMessage, ChatMessage, SystemMessage, ToolMessage, UserMessage,
+        AssistantMessage, ChatMessage, JsonSchemaConfig, ResponseFormat, SystemMessage, ToolMessage,
+        UserMessage,
     };
 
     fn minimal_chat_request(msgs: Vec<ChatMessage>) -> ChatCompletionsRequest {
@@ -300,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_assistant_with_tool_calls_expands_to_separate_items() {
-use crate::openai::chat_completions::request::{ToolCall, ToolCallFunction, ToolCallKind};
+        use crate::openai::chat_completions::request::{ToolCall, ToolCallFunction, ToolCallKind};
         let req = minimal_chat_request(vec![ChatMessage::Assistant(AssistantMessage {
             content: None,
             tool_calls: Some(vec![ToolCall {
@@ -315,14 +381,90 @@ use crate::openai::chat_completions::request::{ToolCall, ToolCallFunction, ToolC
             reasoning_opaque: None,
         })]);
         let copilot: CopilotResponsesRequest = req.into();
-        // The tool call becomes a FunctionCallItem input item
         assert_eq!(copilot.input.len(), 1);
         match &copilot.input[0] {
             InputItem::FunctionCall(fc) => {
                 assert_eq!(fc.name, "get_weather");
+                // call_id (correlation ID) must match the OpenAI tool_call id
                 assert_eq!(fc.call_id, "call-1");
+                // item id also set to the same value for OpenAI-origin calls
+                assert_eq!(fc.id, "call-1");
             }
             other => panic!("expected FunctionCall, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_response_format_json_object_maps_to_text_format() {
+        let mut req = minimal_chat_request(vec![]);
+        req.response_format = Some(ResponseFormat::JsonObject);
+        let copilot: CopilotResponsesRequest = req.into();
+        let text = copilot.text.expect("expected text config");
+        assert!(matches!(text.format, Some(TextFormat::JsonObject)));
+    }
+
+    #[test]
+    fn test_response_format_json_schema_maps() {
+        let mut req = minimal_chat_request(vec![]);
+        req.response_format = Some(ResponseFormat::JsonSchema {
+            json_schema: JsonSchemaConfig {
+                name: "my_schema".to_string(),
+                description: Some("desc".to_string()),
+                schema: serde_json::json!({"type": "object"}),
+            },
+        });
+        let copilot: CopilotResponsesRequest = req.into();
+        let text = copilot.text.expect("expected text config");
+        match text.format {
+            Some(TextFormat::JsonSchema {
+                name,
+                description,
+                schema: _,
+                strict: _,
+            }) => {
+                assert_eq!(name, "my_schema");
+                assert_eq!(description.as_deref(), Some("desc"));
+            }
+            other => panic!("expected JsonSchema format, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_response_format_text_produces_no_text_config() {
+        let mut req = minimal_chat_request(vec![]);
+        req.response_format = Some(ResponseFormat::Text);
+        let copilot: CopilotResponsesRequest = req.into();
+        // ResponseFormat::Text means "no special format" — text config should be None
+        assert!(copilot.text.is_none());
+    }
+
+    #[test]
+    fn test_reasoning_effort_maps_to_reasoning_config() {
+        let mut req = minimal_chat_request(vec![]);
+        req.reasoning_effort = Some("high".to_string());
+        let copilot: CopilotResponsesRequest = req.into();
+        let reasoning = copilot.reasoning.expect("expected reasoning config");
+        assert_eq!(reasoning.effort.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn test_verbosity_maps_to_text_config() {
+        let mut req = minimal_chat_request(vec![]);
+        req.verbosity = Some("detailed".to_string());
+        let copilot: CopilotResponsesRequest = req.into();
+        let text = copilot.text.expect("expected text config");
+        assert_eq!(text.verbosity.as_deref(), Some("detailed"));
+        assert!(text.format.is_none());
+    }
+
+    #[test]
+    fn test_both_response_format_and_verbosity_coexist() {
+        let mut req = minimal_chat_request(vec![]);
+        req.response_format = Some(ResponseFormat::JsonObject);
+        req.verbosity = Some("brief".to_string());
+        let copilot: CopilotResponsesRequest = req.into();
+        let text = copilot.text.expect("expected text config");
+        assert!(matches!(text.format, Some(TextFormat::JsonObject)));
+        assert_eq!(text.verbosity.as_deref(), Some("brief"));
     }
 }
