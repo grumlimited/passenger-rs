@@ -3,11 +3,13 @@ use crate::config::Config;
 use crate::token_manager;
 use axum::{
     Json, Router,
+    extract::{FromRequest, Request},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
 };
 use reqwest::Client;
+use serde::de::DeserializeOwned;
 use std::sync::Arc;
 use tracing::log::error;
 
@@ -47,6 +49,28 @@ impl IntoResponse for AppError {
         }));
 
         (status, body).into_response()
+    }
+}
+
+/// A JSON extractor that returns our standard `application/json` error format
+/// instead of axum's default `text/plain` 422 on deserialization failure.
+pub struct JsonBody<T>(pub T);
+
+impl<T, S> FromRequest<S> for JsonBody<T>
+where
+    T: DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = AppError;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        match Json::<T>::from_request(req, state).await {
+            Ok(Json(value)) => Ok(JsonBody(value)),
+            Err(rejection) => {
+                let message = rejection.body_text();
+                Err(AppError::BadRequest(message))
+            }
+        }
     }
 }
 
@@ -91,6 +115,6 @@ impl Server {
     }
 }
 
-async fn health_check() -> &'static str {
-    "OK"
+async fn health_check() -> impl IntoResponse {
+    Json(serde_json::json!({ "status": "ok" }))
 }

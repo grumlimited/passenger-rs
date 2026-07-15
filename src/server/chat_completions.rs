@@ -24,7 +24,6 @@
 //!   Upstream SSE is already in the correct OpenAI format — passed through.
 
 use axum::{
-    Json,
     body::Body,
     body::Bytes,
     extract::State,
@@ -47,11 +46,11 @@ use crate::openai::chat_completions::response::{
     ToolCallFunctionDelta,
 };
 
-use super::{AppError, AppState, Server};
+use super::{AppError, AppState, JsonBody, Server};
 
 pub async fn handler(
     State(state): State<Arc<AppState>>,
-    Json(request): Json<ChatCompletionsRequest>,
+    JsonBody(request): JsonBody<ChatCompletionsRequest>,
 ) -> Result<Response, AppError> {
     if request.stream != Some(true) {
         return Err(AppError::BadRequest(
