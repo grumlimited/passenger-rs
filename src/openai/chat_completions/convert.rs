@@ -249,8 +249,8 @@ mod tests {
     use super::*;
     use crate::copilot::responses::request::{InputItem, TextFormat, ToolChoice, ToolChoiceMode};
     use crate::openai::chat_completions::request::{
-        AssistantMessage, ChatMessage, JsonSchemaConfig, ResponseFormat, SystemMessage, ToolMessage,
-        UserMessage,
+        AssistantMessage, ChatMessage, JsonSchemaConfig, ResponseFormat, SystemMessage,
+        ToolMessage, UserMessage,
     };
 
     fn minimal_chat_request(msgs: Vec<ChatMessage>) -> ChatCompletionsRequest {

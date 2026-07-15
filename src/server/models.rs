@@ -44,7 +44,10 @@ pub async fn handler(
 
     let body = response.text().await.map_err(|e| {
         error!("Failed to read Copilot models response body: {}", e);
-        AppError::InternalServerError(format!("Failed to read Copilot models response body: {}", e))
+        AppError::InternalServerError(format!(
+            "Failed to read Copilot models response body: {}",
+            e
+        ))
     })?;
 
     let copilot_response: CopilotModelsResponse = serde_json::from_str(&body).map_err(|e| {
@@ -54,15 +57,12 @@ pub async fn handler(
 
     let visible_models = copilot_response.visible_models();
 
-    info!(
-        "Successfully fetched {} models",
-        visible_models.len()
-    );
-    Ok(Json(CopilotModelsResponse {
-        data: visible_models,
-        object: "list".to_string(),
-    }
-    .into()))
-    
-    
+    info!("Successfully fetched {} models", visible_models.len());
+    Ok(Json(
+        CopilotModelsResponse {
+            data: visible_models,
+            object: "list".to_string(),
+        }
+        .into(),
+    ))
 }
