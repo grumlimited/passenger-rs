@@ -21,6 +21,16 @@ Open WebUI  ──►  passenger-rs (127.0.0.1:8081)  ──►  api.githubcopil
 
 Point your web UI at `http://127.0.0.1:8081/v1` with any API key (the value is ignored) and all Copilot models that are enabled in your account will appear in the model picker.
 
+### Open WebUI setup
+
+In Open WebUI, go to **Settings → Connections** and add `http://127.0.0.1:8081/v1` as an OpenAI API connection:
+
+![Open WebUI Connections settings showing http://127.0.0.1:8081/v1 enabled](docs/openwebui_config_1.png)
+
+Click the gear icon next to the connection to confirm the settings. No authentication is required:
+
+![Open WebUI Edit Connection dialog with URL http://127.0.0.1:8081/v1 and Auth set to None](docs/openwebui_config_2.png)
+
 ## Quick Start
 
 ### 1. Download or build
