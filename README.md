@@ -8,23 +8,6 @@ A Rust proxy server that exposes GitHub Copilot models through a streaming OpenA
 
 **Only streaming responses are supported.** All requests must include `"stream": true`.
 
-## Use Case
-
-Point any OpenAI-compatible client at `http://127.0.0.1:8081` to use GitHub Copilot models transparently:
-
-```rust
-use rig::providers::openai;
-
-let client = openai::Client::builder()
-    .api_key("no-key")
-    .base_url("http://127.0.0.1:8081/v1")
-    .build()?;
-
-let model = client.completion_model("claude-sonnet-4.5");
-```
-
-Or use any other OpenAI-compatible SDK, tool, or application by pointing it at the proxy.
-
 ## Quick Start
 
 ### 1. Download or build
