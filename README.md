@@ -8,6 +8,19 @@ A Rust proxy server that exposes GitHub Copilot models through a streaming OpenA
 
 **Only streaming responses are supported.** All requests must include `"stream": true`.
 
+## Use Case
+
+passenger-rs is primarily designed to let web UIs such as [Open WebUI](https://github.com/open-webui/open-webui) talk to models available through your GitHub Copilot subscription.
+
+Open WebUI (and similar tools) expect an OpenAI-compatible API endpoint. GitHub Copilot does not expose one natively. passenger-rs sits between the two: it accepts standard OpenAI streaming requests from the web UI, forwards them to the Copilot API using your personal token, and translates the response back into the format the UI expects.
+
+```
+Open WebUI  ──►  passenger-rs (127.0.0.1:8081)  ──►  api.githubcopilot.com
+             OpenAI API                            Copilot API
+```
+
+Point your web UI at `http://127.0.0.1:8081/v1` with any API key (the value is ignored) and all Copilot models that are enabled in your account will appear in the model picker.
+
 ## Quick Start
 
 ### 1. Download or build
