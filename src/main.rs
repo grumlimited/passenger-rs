@@ -3,7 +3,6 @@ mod clap;
 mod config;
 mod copilot;
 mod login;
-mod ollama;
 mod openai;
 mod server;
 mod storage;

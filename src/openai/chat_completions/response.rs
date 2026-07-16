@@ -1,14 +1,11 @@
-//! Standard OpenAI `/chat/completions` API — response types.
+//! Standard OpenAI `/chat/completions` API — streaming response types.
 //!
-//! Translated from `OpenAICompatibleChatResponseSchema` in
-//! `openai-compatible-chat-language-model.ts`.
+//! Spec: https://platform.openai.com/docs/api-reference/chat/streaming
 //!
 //! Copilot-specific additions (`reasoning_text`, `reasoning_opaque`) are
-//! included on `AssistantResponseMessage`; standard clients ignore them.
+//! included on `ChatDelta`; standard clients ignore them.
 
 use serde::{Deserialize, Serialize};
-
-use super::request::ToolCall;
 
 // ---------------------------------------------------------------------------
 // Usage
@@ -45,41 +42,18 @@ pub struct CompletionTokensDetails {
 }
 
 // ---------------------------------------------------------------------------
-// Choice
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ChatChoice {
-    pub message: AssistantResponseMessage,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub finish_reason: Option<String>,
-    #[serde(default)]
-    pub index: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AssistantResponseMessage {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub role: Option<String>, // always "assistant" when present
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_calls: Option<Vec<ToolCall>>,
-    /// Copilot-specific: human-readable reasoning summary.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning_text: Option<String>,
-    /// Copilot-specific: encrypted reasoning opaque token.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning_opaque: Option<String>,
-}
-
-// ---------------------------------------------------------------------------
 // Streaming chunk
 // ---------------------------------------------------------------------------
 
 /// A single SSE chunk for `/chat/completions` streaming.
+///
+/// The `object` field is always `"chat.completion.chunk"` per spec.
+/// The `id` and `created` fields are consistent across all chunks for the
+/// same response (tracked from the first `ResponseCreated` event).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ChatCompletionChunk {
+    /// Always `"chat.completion.chunk"`.
+    pub object: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -108,6 +82,8 @@ pub struct ChatDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCallDelta>>,
     /// Copilot-specific: reasoning text delta.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -122,6 +98,9 @@ pub struct ToolCallDelta {
     pub index: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    /// Always `"function"` on the first delta for a given tool call.
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function: Option<ToolCallFunctionDelta>,
 }
@@ -134,106 +113,15 @@ pub struct ToolCallFunctionDelta {
     pub arguments: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Top-level non-streaming response
-// ---------------------------------------------------------------------------
-
-/// Response body from `POST /v1/chat/completions` (non-streaming).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ChatCompletionsResponse {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub created: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    pub choices: Vec<ChatChoice>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<ChatUsage>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
     #[test]
-    fn test_parse_minimal_response() {
-        let json = json!({
-            "id": "chatcmpl-123",
-            "created": 1700000000_u64,
-            "model": "gpt-4o",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": { "role": "assistant", "content": "Hello!" },
-                    "finish_reason": "stop"
-                }
-            ],
-            "usage": {
-                "prompt_tokens": 10,
-                "completion_tokens": 5,
-                "total_tokens": 15
-            }
-        });
-        let resp: ChatCompletionsResponse = serde_json::from_value(json).unwrap();
-        assert_eq!(resp.id.as_deref(), Some("chatcmpl-123"));
-        assert_eq!(resp.choices[0].message.content.as_deref(), Some("Hello!"));
-        assert_eq!(resp.usage.as_ref().unwrap().prompt_tokens, Some(10));
-    }
-
-    #[test]
-    fn test_parse_tool_call_response() {
-        let json = json!({
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": null,
-                        "tool_calls": [
-                            {
-                                "id": "call-1",
-                                "type": "function",
-                                "function": { "name": "get_weather", "arguments": "{}" }
-                            }
-                        ]
-                    },
-                    "finish_reason": "tool_calls"
-                }
-            ]
-        });
-        let resp: ChatCompletionsResponse = serde_json::from_value(json).unwrap();
-        let tc = &resp.choices[0].message.tool_calls.as_ref().unwrap()[0];
-        assert_eq!(tc.function.name, "get_weather");
-        assert_eq!(tc.id, "call-1");
-    }
-
-    #[test]
-    fn test_parse_copilot_reasoning_fields() {
-        let json = json!({
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": "Answer.",
-                        "reasoning_text": "I thought about it.",
-                        "reasoning_opaque": "enc-tok-xyz"
-                    },
-                    "finish_reason": "stop"
-                }
-            ]
-        });
-        let resp: ChatCompletionsResponse = serde_json::from_value(json).unwrap();
-        let msg = &resp.choices[0].message;
-        assert_eq!(msg.reasoning_text.as_deref(), Some("I thought about it."));
-        assert_eq!(msg.reasoning_opaque.as_deref(), Some("enc-tok-xyz"));
-    }
-
-    #[test]
     fn test_parse_streaming_chunk_text_delta() {
         let json = json!({
+            "object": "chat.completion.chunk",
             "id": "chatcmpl-abc",
             "created": 1700000000_u64,
             "model": "gpt-4o",
@@ -246,13 +134,30 @@ mod tests {
             ]
         });
         let chunk: ChatCompletionChunk = serde_json::from_value(json).unwrap();
+        assert_eq!(chunk.object, "chat.completion.chunk");
         let delta = chunk.choices[0].delta.as_ref().unwrap();
         assert_eq!(delta.content.as_deref(), Some("Hi"));
     }
 
     #[test]
+    fn test_serialize_chunk_includes_object_field() {
+        let chunk = ChatCompletionChunk {
+            object: "chat.completion.chunk".to_string(),
+            id: Some("chatcmpl-abc".to_string()),
+            created: Some(1700000000),
+            model: Some("gpt-4o".to_string()),
+            choices: vec![],
+            usage: None,
+        };
+        let json = serde_json::to_value(&chunk).unwrap();
+        assert_eq!(json["object"], "chat.completion.chunk");
+        assert_eq!(json["id"], "chatcmpl-abc");
+    }
+
+    #[test]
     fn test_parse_streaming_chunk_tool_call_delta() {
         let json = json!({
+            "object": "chat.completion.chunk",
             "choices": [
                 {
                     "index": 0,
@@ -261,6 +166,7 @@ mod tests {
                             {
                                 "index": 0,
                                 "id": "call-1",
+                                "type": "function",
                                 "function": { "name": "get_weather", "arguments": "" }
                             }
                         ]
@@ -277,6 +183,7 @@ mod tests {
             .tool_calls
             .as_ref()
             .unwrap()[0];
+        assert_eq!(tc.kind.as_deref(), Some("function"));
         assert_eq!(
             tc.function.as_ref().unwrap().name.as_deref(),
             Some("get_weather")
@@ -286,6 +193,7 @@ mod tests {
     #[test]
     fn test_parse_streaming_chunk_usage() {
         let json = json!({
+            "object": "chat.completion.chunk",
             "choices": [],
             "usage": {
                 "prompt_tokens": 5,
@@ -306,26 +214,19 @@ mod tests {
     }
 
     #[test]
-    fn test_roundtrip_response() {
-        let resp = ChatCompletionsResponse {
-            id: Some("chatcmpl-rt".to_string()),
-            created: Some(1700000000),
-            model: Some("gpt-4o".to_string()),
-            choices: vec![ChatChoice {
-                index: 0,
-                message: AssistantResponseMessage {
-                    role: Some("assistant".to_string()),
-                    content: Some("Hello!".to_string()),
-                    tool_calls: None,
-                    reasoning_text: None,
-                    reasoning_opaque: None,
-                },
-                finish_reason: Some("stop".to_string()),
-            }],
-            usage: None,
-        };
-        let json = serde_json::to_value(&resp).unwrap();
-        let back: ChatCompletionsResponse = serde_json::from_value(json).unwrap();
-        assert_eq!(back, resp);
+    fn test_chat_delta_refusal_field() {
+        let json = json!({
+            "object": "chat.completion.chunk",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": { "refusal": "I cannot help with that." },
+                    "finish_reason": "stop"
+                }
+            ]
+        });
+        let chunk: ChatCompletionChunk = serde_json::from_value(json).unwrap();
+        let delta = chunk.choices[0].delta.as_ref().unwrap();
+        assert_eq!(delta.refusal.as_deref(), Some("I cannot help with that."));
     }
 }

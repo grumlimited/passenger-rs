@@ -4,32 +4,32 @@
 //! Maps `messages` → Copilot `input` items, adapts tools/tool_choice schemas,
 //! and carries over all standard parameters.
 //!
+//! Notable mappings:
+//! - `max_tokens` → `max_output_tokens`
+//! - `response_format` → `text.format`
+//! - `reasoning_effort` → `reasoning.effort`
+//! - `verbosity` → `text.verbosity`
+//! - `thinking_budget` is silently dropped (no Copilot equivalent)
+//! - `frequency_penalty`, `presence_penalty`, `stop`, `seed` have no Copilot equivalent
+//!
 //! In the Copilot Responses API multi-turn format, assistant tool calls are
 //! separate `FunctionCallItem` input items (not nested inside the assistant
-//! message). This matches how opencode sends them.
-//!
-//! # Copilot responses response → Chat response
-//! Maps `output` items back into `choices[0]`, collecting text from
-//! `MessageOutputItem` and tool calls from `FunctionCallOutputItem`.
+//! message). In the Copilot API, `FunctionCallItem.id` is the item ID
+//! (typically the same as `call_id` for OpenAI-origin calls) and
+//! `FunctionCallItem.call_id` is the function call correlation ID that must
+//! match the `ToolResult.call_id` in the next turn.
 
 use crate::copilot::responses::request::{
     AssistantContentPart, AssistantMessage as CopilotAssistantMessage, CopilotResponsesRequest,
-    FunctionCallItem, FunctionCallItemKind, FunctionTool, InputImage, InputItem,
-    SystemMessage as CopilotSystemMessage, Tool, ToolChoice, ToolChoiceFunction, ToolChoiceMode,
-    ToolResult, ToolResultKind, UserContent as CopilotUserContent,
-    UserContentPart as CopilotUserContentPart, UserMessage as CopilotUserMessage,
-};
-use crate::copilot::responses::response::{
-    CopilotResponsesResponse, OutputItem, Usage as CopilotUsage,
+    FunctionCallItem, FunctionCallItemKind, FunctionTool, InputImage, InputItem, ReasoningConfig,
+    SystemMessage as CopilotSystemMessage, TextConfig, TextFormat, Tool, ToolChoice,
+    ToolChoiceFunction, ToolChoiceMode, ToolResult, ToolResultKind,
+    UserContent as CopilotUserContent, UserContentPart as CopilotUserContentPart,
+    UserMessage as CopilotUserMessage,
 };
 use crate::openai::chat_completions::request::{
     ChatCompletionsRequest, ChatMessage, ChatTool, ChatToolChoice, ChatToolChoiceMode,
-    SystemContent, UserContent, UserContentPart,
-};
-use crate::openai::chat_completions::request::{ToolCall, ToolCallFunction, ToolCallKind};
-use crate::openai::chat_completions::response::{
-    AssistantResponseMessage, ChatChoice, ChatCompletionsResponse, ChatUsage,
-    CompletionTokensDetails, PromptTokensDetails,
+    ResponseFormat, SystemContent, UserContent, UserContentPart,
 };
 
 // ---------------------------------------------------------------------------
@@ -87,7 +87,11 @@ fn convert_chat_message(msg: ChatMessage) -> Vec<InputItem> {
                 }));
             }
 
-            // Tool calls become separate FunctionCallItem input items
+            // Tool calls become separate FunctionCallItem input items.
+            // In the Copilot Responses API:
+            //   - `id` is the item ID (we use the OpenAI tool_call id)
+            //   - `call_id` is the correlation ID that must match ToolResult.call_id
+            // For OpenAI-origin tool calls these are the same value.
             for tc in a.tool_calls.unwrap_or_default() {
                 items.push(InputItem::FunctionCall(FunctionCallItem {
                     kind: FunctionCallItemKind::FunctionCall,
@@ -125,11 +129,11 @@ fn convert_chat_message(msg: ChatMessage) -> Vec<InputItem> {
 
 fn convert_chat_tool(tool: ChatTool) -> Tool {
     match tool {
-        ChatTool::Function(f) => Tool::Function(FunctionTool {
-            name: f.name,
-            description: f.description,
-            parameters: f.parameters,
-            strict: f.strict,
+        ChatTool::Function(wrapper) => Tool::Function(FunctionTool {
+            name: wrapper.function.name,
+            description: wrapper.function.description,
+            parameters: wrapper.function.parameters,
+            strict: wrapper.function.strict,
         }),
     }
 }
@@ -145,6 +149,45 @@ fn convert_chat_tool_choice(choice: ChatToolChoice) -> ToolChoice {
             kind: f.kind,
             name: f.function.name,
         }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// response_format → text.format
+// ---------------------------------------------------------------------------
+
+fn convert_response_format(fmt: ResponseFormat) -> TextFormat {
+    match fmt {
+        ResponseFormat::Text => {
+            // No direct `text` variant in Copilot's TextFormat — treated as plain text (no format)
+            // Callers should leave `text.format` as None for `ResponseFormat::Text`.
+            // This arm is unreachable via convert_text_config, but kept for completeness.
+            TextFormat::JsonObject // fallback: shouldn't be reached
+        }
+        ResponseFormat::JsonObject => TextFormat::JsonObject,
+        ResponseFormat::JsonSchema { json_schema } => TextFormat::JsonSchema {
+            name: json_schema.name,
+            description: json_schema.description,
+            schema: json_schema.schema,
+            strict: None,
+        },
+    }
+}
+
+fn convert_text_config(
+    response_format: Option<ResponseFormat>,
+    verbosity: Option<String>,
+) -> Option<TextConfig> {
+    let format = match response_format {
+        // `Text` means "no special format" — don't set text.format at all
+        None | Some(ResponseFormat::Text) => None,
+        Some(fmt) => Some(convert_response_format(fmt)),
+    };
+
+    if format.is_none() && verbosity.is_none() {
+        None
+    } else {
+        Some(TextConfig { format, verbosity })
     }
 }
 
@@ -166,6 +209,15 @@ impl From<ChatCompletionsRequest> for CopilotResponsesRequest {
 
         let tool_choice = req.tool_choice.map(convert_chat_tool_choice);
 
+        // reasoning.effort comes from reasoning_effort; thinking_budget has no equivalent
+        let reasoning = req.reasoning_effort.map(|effort| ReasoningConfig {
+            effort: Some(effort),
+            summary: None,
+        });
+
+        // text.format comes from response_format; text.verbosity from verbosity
+        let text = convert_text_config(req.response_format, req.verbosity);
+
         CopilotResponsesRequest {
             model: req.model,
             input,
@@ -178,9 +230,9 @@ impl From<ChatCompletionsRequest> for CopilotResponsesRequest {
             instructions: None,
             store: None,
             previous_response_id: None,
-            reasoning: None,
+            reasoning,
             truncation: None,
-            text: None,
+            text,
             metadata: None,
             user: req.user,
             service_tier: None,
@@ -192,97 +244,13 @@ impl From<ChatCompletionsRequest> for CopilotResponsesRequest {
     }
 }
 
-// ---------------------------------------------------------------------------
-// CopilotResponsesResponse → ChatCompletionsResponse
-// ---------------------------------------------------------------------------
-
-impl From<CopilotResponsesResponse> for ChatCompletionsResponse {
-    fn from(resp: CopilotResponsesResponse) -> Self {
-        let mut text_parts: Vec<String> = vec![];
-        let mut tool_calls: Vec<ToolCall> = vec![];
-        let mut finish_reason: Option<String> = Some("stop".to_string());
-
-        for item in resp.output {
-            match item {
-                OutputItem::Message(msg) => {
-                    for part in msg.content {
-                        text_parts.push(part.text);
-                    }
-                }
-                OutputItem::FunctionCall(fc) => {
-                    tool_calls.push(ToolCall {
-                        id: fc.call_id,
-                        kind: ToolCallKind::Function,
-                        function: ToolCallFunction {
-                            name: fc.name,
-                            arguments: fc.arguments,
-                        },
-                    });
-                    finish_reason = Some("tool_calls".to_string());
-                }
-                _ => {} // reasoning, web_search, etc. — not surfaced in chat completions
-            }
-        }
-
-        let content = if text_parts.is_empty() {
-            None
-        } else {
-            Some(text_parts.join(""))
-        };
-
-        let choice = ChatChoice {
-            index: 0,
-            message: AssistantResponseMessage {
-                role: Some("assistant".to_string()),
-                content,
-                tool_calls: if tool_calls.is_empty() {
-                    None
-                } else {
-                    Some(tool_calls)
-                },
-                reasoning_text: None,
-                reasoning_opaque: None,
-            },
-            finish_reason,
-        };
-
-        let usage = map_usage(resp.usage);
-
-        ChatCompletionsResponse {
-            id: Some(resp.id),
-            created: Some(resp.created_at),
-            model: Some(resp.model),
-            choices: vec![choice],
-            usage: Some(usage),
-        }
-    }
-}
-
-fn map_usage(u: CopilotUsage) -> ChatUsage {
-    ChatUsage {
-        prompt_tokens: Some(u.input_tokens),
-        completion_tokens: Some(u.output_tokens),
-        total_tokens: Some(u.input_tokens + u.output_tokens),
-        prompt_tokens_details: u.input_tokens_details.map(|d| PromptTokensDetails {
-            cached_tokens: d.cached_tokens,
-        }),
-        completion_tokens_details: u.output_tokens_details.map(|d| CompletionTokensDetails {
-            reasoning_tokens: d.reasoning_tokens,
-            accepted_prediction_tokens: None,
-            rejected_prediction_tokens: None,
-        }),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::copilot::responses::response::{
-        FunctionCallOutputItem, MessageOutputItem, OutputItem, OutputTextKind, OutputTextPart,
-        Usage,
-    };
+    use crate::copilot::responses::request::{InputItem, TextFormat, ToolChoice, ToolChoiceMode};
     use crate::openai::chat_completions::request::{
-        AssistantMessage, ChatMessage, SystemMessage, ToolMessage, UserMessage,
+        AssistantMessage, ChatMessage, JsonSchemaConfig, ResponseFormat, SystemMessage,
+        ToolMessage, UserMessage,
     };
 
     fn minimal_chat_request(msgs: Vec<ChatMessage>) -> ChatCompletionsRequest {
@@ -305,33 +273,6 @@ mod tests {
             reasoning_effort: None,
             verbosity: None,
             thinking_budget: None,
-        }
-    }
-
-    fn copilot_text_response(text: &str) -> CopilotResponsesResponse {
-        CopilotResponsesResponse {
-            id: "resp-1".to_string(),
-            created_at: 1700000000,
-            model: "gpt-4o".to_string(),
-            output: vec![OutputItem::Message(MessageOutputItem {
-                id: "msg-1".to_string(),
-                role: "assistant".to_string(),
-                content: vec![OutputTextPart {
-                    kind: OutputTextKind::OutputText,
-                    text: text.to_string(),
-                    logprobs: None,
-                    annotations: vec![],
-                }],
-            })],
-            usage: Usage {
-                input_tokens: 10,
-                input_tokens_details: None,
-                output_tokens: 5,
-                output_tokens_details: None,
-            },
-            error: None,
-            service_tier: None,
-            incomplete_details: None,
         }
     }
 
@@ -404,13 +345,17 @@ mod tests {
 
     #[test]
     fn test_function_tool_maps() {
-        use crate::openai::chat_completions::request::{ChatFunctionTool, ChatTool};
+        use crate::openai::chat_completions::request::{
+            ChatFunctionTool, ChatFunctionToolWrapper, ChatTool,
+        };
         let mut req = minimal_chat_request(vec![]);
-        req.tools = Some(vec![ChatTool::Function(ChatFunctionTool {
-            name: "get_weather".to_string(),
-            description: Some("Get weather".to_string()),
-            parameters: serde_json::json!({"type": "object"}),
-            strict: None,
+        req.tools = Some(vec![ChatTool::Function(ChatFunctionToolWrapper {
+            function: ChatFunctionTool {
+                name: "get_weather".to_string(),
+                description: Some("Get weather".to_string()),
+                parameters: serde_json::json!({"type": "object"}),
+                strict: None,
+            },
         })]);
         let copilot: CopilotResponsesRequest = req.into();
         assert_eq!(copilot.tools.as_ref().unwrap().len(), 1);
@@ -440,75 +385,90 @@ mod tests {
             reasoning_opaque: None,
         })]);
         let copilot: CopilotResponsesRequest = req.into();
-        // The tool call becomes a FunctionCallItem input item
         assert_eq!(copilot.input.len(), 1);
         match &copilot.input[0] {
             InputItem::FunctionCall(fc) => {
                 assert_eq!(fc.name, "get_weather");
+                // call_id (correlation ID) must match the OpenAI tool_call id
                 assert_eq!(fc.call_id, "call-1");
+                // item id also set to the same value for OpenAI-origin calls
+                assert_eq!(fc.id, "call-1");
             }
             other => panic!("expected FunctionCall, got {:?}", other),
         }
     }
 
-    // --- CopilotResponsesResponse → ChatCompletionsResponse ---
-
     #[test]
-    fn test_text_response_maps_to_choice() {
-        let resp = copilot_text_response("Hello, world!");
-        let chat: ChatCompletionsResponse = resp.into();
-        assert_eq!(
-            chat.choices[0].message.content.as_deref(),
-            Some("Hello, world!")
-        );
-        assert_eq!(chat.choices[0].finish_reason.as_deref(), Some("stop"));
+    fn test_response_format_json_object_maps_to_text_format() {
+        let mut req = minimal_chat_request(vec![]);
+        req.response_format = Some(ResponseFormat::JsonObject);
+        let copilot: CopilotResponsesRequest = req.into();
+        let text = copilot.text.expect("expected text config");
+        assert!(matches!(text.format, Some(TextFormat::JsonObject)));
     }
 
     #[test]
-    fn test_function_call_response_maps_to_tool_calls() {
-        let resp = CopilotResponsesResponse {
-            id: "resp-2".to_string(),
-            created_at: 1700000000,
-            model: "gpt-4o".to_string(),
-            output: vec![OutputItem::FunctionCall(FunctionCallOutputItem {
-                id: "item-1".to_string(),
-                call_id: "call-abc".to_string(),
-                name: "get_weather".to_string(),
-                arguments: "{\"city\":\"Paris\"}".to_string(),
-            })],
-            usage: Usage {
-                input_tokens: 5,
-                input_tokens_details: None,
-                output_tokens: 20,
-                output_tokens_details: None,
+    fn test_response_format_json_schema_maps() {
+        let mut req = minimal_chat_request(vec![]);
+        req.response_format = Some(ResponseFormat::JsonSchema {
+            json_schema: JsonSchemaConfig {
+                name: "my_schema".to_string(),
+                description: Some("desc".to_string()),
+                schema: serde_json::json!({"type": "object"}),
             },
-            error: None,
-            service_tier: None,
-            incomplete_details: None,
-        };
-        let chat: ChatCompletionsResponse = resp.into();
-        let tc = &chat.choices[0].message.tool_calls.as_ref().unwrap()[0];
-        assert_eq!(tc.function.name, "get_weather");
-        assert_eq!(tc.id, "call-abc");
-        assert_eq!(chat.choices[0].finish_reason.as_deref(), Some("tool_calls"));
+        });
+        let copilot: CopilotResponsesRequest = req.into();
+        let text = copilot.text.expect("expected text config");
+        match text.format {
+            Some(TextFormat::JsonSchema {
+                name,
+                description,
+                schema: _,
+                strict: _,
+            }) => {
+                assert_eq!(name, "my_schema");
+                assert_eq!(description.as_deref(), Some("desc"));
+            }
+            other => panic!("expected JsonSchema format, got {:?}", other),
+        }
     }
 
     #[test]
-    fn test_usage_maps_correctly() {
-        let resp = copilot_text_response("Hi");
-        let chat: ChatCompletionsResponse = resp.into();
-        let usage = chat.usage.unwrap();
-        assert_eq!(usage.prompt_tokens, Some(10));
-        assert_eq!(usage.completion_tokens, Some(5));
-        assert_eq!(usage.total_tokens, Some(15));
+    fn test_response_format_text_produces_no_text_config() {
+        let mut req = minimal_chat_request(vec![]);
+        req.response_format = Some(ResponseFormat::Text);
+        let copilot: CopilotResponsesRequest = req.into();
+        // ResponseFormat::Text means "no special format" — text config should be None
+        assert!(copilot.text.is_none());
     }
 
     #[test]
-    fn test_response_id_and_model_preserved() {
-        let resp = copilot_text_response("Hi");
-        let chat: ChatCompletionsResponse = resp.into();
-        assert_eq!(chat.id.as_deref(), Some("resp-1"));
-        assert_eq!(chat.model.as_deref(), Some("gpt-4o"));
-        assert_eq!(chat.created, Some(1700000000));
+    fn test_reasoning_effort_maps_to_reasoning_config() {
+        let mut req = minimal_chat_request(vec![]);
+        req.reasoning_effort = Some("high".to_string());
+        let copilot: CopilotResponsesRequest = req.into();
+        let reasoning = copilot.reasoning.expect("expected reasoning config");
+        assert_eq!(reasoning.effort.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn test_verbosity_maps_to_text_config() {
+        let mut req = minimal_chat_request(vec![]);
+        req.verbosity = Some("detailed".to_string());
+        let copilot: CopilotResponsesRequest = req.into();
+        let text = copilot.text.expect("expected text config");
+        assert_eq!(text.verbosity.as_deref(), Some("detailed"));
+        assert!(text.format.is_none());
+    }
+
+    #[test]
+    fn test_both_response_format_and_verbosity_coexist() {
+        let mut req = minimal_chat_request(vec![]);
+        req.response_format = Some(ResponseFormat::JsonObject);
+        req.verbosity = Some("brief".to_string());
+        let copilot: CopilotResponsesRequest = req.into();
+        let text = copilot.text.expect("expected text config");
+        assert!(matches!(text.format, Some(TextFormat::JsonObject)));
+        assert_eq!(text.verbosity.as_deref(), Some("brief"));
     }
 }

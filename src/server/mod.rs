@@ -13,9 +13,6 @@ use tracing::log::error;
 
 pub mod chat_completions;
 pub mod models;
-pub mod ollama_chat;
-pub mod ollama_tags;
-pub mod ollama_version;
 pub mod responses;
 
 /// Shared application state
@@ -78,9 +75,6 @@ impl Server {
             .route("/v1/chat/completions", post(chat_completions::handler))
             .route("/v1/responses", post(responses::handler))
             .route("/v1/models", get(models::handler))
-            .route("/api/chat", post(ollama_chat::handler))
-            .route("/api/tags", get(ollama_tags::handler))
-            .route("/api/version", get(ollama_version::handler))
             .route("/health", get(health_check))
             .with_state(state)
     }

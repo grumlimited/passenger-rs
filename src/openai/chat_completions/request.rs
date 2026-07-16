@@ -118,7 +118,14 @@ pub struct ToolMessage {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChatTool {
-    Function(ChatFunctionTool),
+    Function(ChatFunctionToolWrapper),
+}
+
+/// Wrapper matching the OpenAI wire format:
+/// `{"type": "function", "function": {"name": ..., ...}}`
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ChatFunctionToolWrapper {
+    pub function: ChatFunctionTool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -377,8 +384,10 @@ mod tests {
             "tools": [
                 {
                     "type": "function",
-                    "name": "get_weather",
-                    "parameters": { "type": "object" }
+                    "function": {
+                        "name": "get_weather",
+                        "parameters": { "type": "object" }
+                    }
                 }
             ],
             "tool_choice": "auto"
@@ -386,7 +395,7 @@ mod tests {
         let req: ChatCompletionsRequest = serde_json::from_value(json).unwrap();
         assert_eq!(req.tools.as_ref().unwrap().len(), 1);
         match &req.tools.as_ref().unwrap()[0] {
-            ChatTool::Function(f) => assert_eq!(f.name, "get_weather"),
+            ChatTool::Function(w) => assert_eq!(w.function.name, "get_weather"),
         }
         assert_eq!(
             req.tool_choice,
